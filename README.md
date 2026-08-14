@@ -4,6 +4,8 @@ Protótipo do **Projeto Integrador (PGI)** — Curso de Sistemas para Internet (
 
 O CronotaScan realiza a leitura visual de discos diagrama de cronotacógrafo analógico por visão computacional (OpenCV), detecta excessos de velocidade e paradas prolongadas, persiste o histórico em SQLite e gera laudos PDF de auditoria.
 
+Documentação extra (Engenharia de Software 2): [`DOCUMENTACAO_ES2.md`](DOCUMENTACAO_ES2.md).
+
 ---
 
 ## Requisitos
