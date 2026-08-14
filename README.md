@@ -14,6 +14,10 @@ O CronotaScan realiza a leitura visual de discos diagrama de cronotacógrafo ana
 
 ---
 
+> **Tutorial completo (PC da Univali):** veja [`TUTORIAL.md`](TUTORIAL.md).
+
+---
+
 ## Instalação rápida (passo a passo)
 
 Abra o **PowerShell** na pasta do projeto:
