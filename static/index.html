@@ -1,0 +1,1150 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CronotaScan — Galaxy Pro</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+
+  <style>
+    /* ─── Paleta Galaxy Pro ─── */
+    :root {
+      --bg:        #04091a;
+      --bg2:       #07112b;
+      --panel:     #0b1c38;
+      --panel2:    #0e2045;
+      --border:    rgba(59, 130, 246, 0.18);
+      --border2:   rgba(124, 58, 237, 0.18);
+      --blue:      #3b82f6;
+      --blue-glow: rgba(59, 130, 246, 0.35);
+      --purple:    #7c3aed;
+      --purple-gl: rgba(124, 58, 237, 0.35);
+      --silver:    #c8d4e8;
+      --white:     #e2e8f0;
+      --muted:     #64748b;
+      --muted2:    #94a3b8;
+      --success:   #22c55e;
+      --warn:      #f59e0b;
+      --danger:    #ef4444;
+      --danger-bg: rgba(239, 68, 68, 0.08);
+      --warn-bg:   rgba(245, 158, 11, 0.08);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* Fundo com "estrelas" via gradiente pontilhado */
+    body {
+      min-height: 100vh;
+      font-family: "Inter", sans-serif;
+      color: var(--white);
+      background-color: var(--bg);
+      background-image:
+        radial-gradient(ellipse 80% 60% at 50% -10%, rgba(59,130,246,0.12), transparent),
+        radial-gradient(ellipse 60% 40% at 85% 90%,  rgba(124,58,237,0.10), transparent),
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='600' height='600'%3E%3Ccircle cx='80'  cy='60'  r='1' fill='%23c8d4e8' opacity='.35'/%3E%3Ccircle cx='200' cy='150' r='.8' fill='%23c8d4e8' opacity='.25'/%3E%3Ccircle cx='480' cy='80'  r='1.2' fill='%23c8d4e8' opacity='.4'/%3E%3Ccircle cx='320' cy='260' r='.7' fill='%23c8d4e8' opacity='.2'/%3E%3Ccircle cx='55'  cy='320' r='1' fill='%23c8d4e8' opacity='.3'/%3E%3Ccircle cx='540' cy='350' r='.9' fill='%23c8d4e8' opacity='.25'/%3E%3Ccircle cx='140' cy='480' r='1.1' fill='%23c8d4e8' opacity='.3'/%3E%3Ccircle cx='420' cy='500' r='.8' fill='%23c8d4e8' opacity='.2'/%3E%3Ccircle cx='270' cy='530' r='1' fill='%23c8d4e8' opacity='.2'/%3E%3Ccircle cx='560' cy='200' r='.7' fill='%23c8d4e8' opacity='.35'/%3E%3C/svg%3E");
+    }
+
+    h1, h2, h3, .brand, .orbitron { font-family: "Orbitron", sans-serif; }
+
+    /* ─── Scrollbar ─── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+    /* ─── Shell ─── */
+    .app-shell {
+      max-width: 1220px;
+      margin: 0 auto;
+      padding: 1.5rem 1.25rem 3rem;
+    }
+
+    /* ─── Navbar / Header ─── */
+    .gp-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 1rem;
+      padding: 0.75rem 1.5rem 0.75rem 1rem;
+      margin-bottom: 2rem;
+      background: rgba(7, 17, 43, 0.85);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      backdrop-filter: blur(10px);
+      box-shadow: 0 4px 32px rgba(59,130,246,0.08);
+    }
+
+    .gp-logo-wrap {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+    }
+
+    .gp-logo-wrap img {
+      height: 52px;
+      width: auto;
+      object-fit: contain;
+      filter: drop-shadow(0 0 8px rgba(59,130,246,0.45));
+    }
+
+    .gp-brand-text { line-height: 1.15; }
+
+    .gp-brand-title {
+      font-family: "Orbitron", sans-serif;
+      font-weight: 700;
+      font-size: 0.72rem;
+      letter-spacing: 0.22em;
+      color: var(--muted2);
+      text-transform: uppercase;
+    }
+
+    .gp-app-name {
+      font-family: "Orbitron", sans-serif;
+      font-weight: 900;
+      font-size: clamp(1.3rem, 3vw, 1.75rem);
+      letter-spacing: 0.06em;
+      background: linear-gradient(90deg, #60a5fa 0%, #a78bfa 60%, #60a5fa 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      line-height: 1.1;
+    }
+
+    .gp-tagline {
+      font-size: 0.8rem;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+      font-family: "Orbitron", sans-serif;
+      text-transform: uppercase;
+    }
+
+    .gp-tagline span { color: var(--blue); }
+
+    /* ─── Painel de upload ─── */
+    .upload-panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.4rem 1.5rem;
+      box-shadow: 0 8px 40px rgba(59,130,246,0.06);
+      display: grid;
+      gap: 0.9rem;
+    }
+
+    .upload-panel h2 {
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: var(--blue);
+      font-family: "Orbitron", sans-serif;
+      margin-bottom: 0.1rem;
+    }
+
+    .file-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.65rem;
+      align-items: center;
+    }
+
+    .file-name {
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+
+    /* inputs */
+    .form-control, .form-select {
+      background: var(--bg2) !important;
+      border: 1px solid var(--border) !important;
+      color: var(--white) !important;
+      border-radius: 8px !important;
+    }
+    .form-control::placeholder { color: var(--muted) !important; }
+    .form-control:focus, .form-select:focus {
+      border-color: var(--blue) !important;
+      box-shadow: 0 0 0 3px var(--blue-glow) !important;
+      outline: none !important;
+    }
+    .form-label {
+      font-size: 0.83rem;
+      color: var(--muted2);
+      font-weight: 600;
+      letter-spacing: 0.04em;
+    }
+
+    .placa-input {
+      max-width: 180px;
+      text-transform: uppercase;
+      font-family: "Orbitron", sans-serif;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+    }
+
+    /* ─── Botões ─── */
+    .btn-upload {
+      background: linear-gradient(135deg, #2563eb, #7c3aed);
+      border: none;
+      color: #fff;
+      font-weight: 700;
+      font-family: "Orbitron", sans-serif;
+      letter-spacing: 0.06em;
+      padding: 0.75rem 1.4rem;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      box-shadow: 0 4px 18px var(--blue-glow);
+      transition: box-shadow .2s, opacity .2s;
+      text-transform: uppercase;
+    }
+    .btn-upload:hover, .btn-upload:focus { opacity: .9; color: #fff; box-shadow: 0 6px 28px var(--blue-glow); }
+    .btn-upload:disabled { opacity: .55; cursor: not-allowed; }
+
+    .btn-limpar {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted2);
+      font-family: "Orbitron", sans-serif;
+      font-weight: 600;
+      border-radius: 8px;
+      padding: 0.75rem 1rem;
+      font-size: 0.82rem;
+      letter-spacing: 0.04em;
+      transition: border-color .15s, color .15s;
+    }
+    .btn-limpar:hover { border-color: var(--blue); color: var(--white); }
+
+    .btn-filtrar, .btn-detalhes {
+      background: var(--panel2);
+      border: 1px solid var(--border);
+      color: var(--muted2);
+      font-family: "Orbitron", sans-serif;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      border-radius: 6px;
+      padding: 0.4rem 0.8rem;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      transition: border-color .15s, color .15s;
+    }
+    .btn-filtrar:hover, .btn-detalhes:hover { border-color: var(--blue); color: var(--blue); }
+
+    .btn-laudo, .btn-laudo-sm {
+      background: linear-gradient(135deg, #7c3aed, #2563eb);
+      border: none;
+      color: #fff;
+      font-family: "Orbitron", sans-serif;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      transition: opacity .2s;
+    }
+    .btn-laudo { padding: 0.6rem 1.1rem; }
+    .btn-laudo-sm { padding: 0.3rem 0.6rem; font-size: 0.75rem; }
+    .btn-laudo:hover, .btn-laudo-sm:hover { opacity: .85; color: #fff; }
+
+    /* ─── Status / Alertas ─── */
+    .status-msg { min-height: 1.3rem; font-size: 0.9rem; }
+    .status-msg.erro { color: var(--danger); }
+    .status-msg.ok   { color: var(--success); }
+
+    .alerta-erro {
+      display: none;
+      margin-top: 0.6rem;
+      padding: 0.8rem 1rem;
+      border-radius: 8px;
+      border: 1px solid rgba(239,68,68,.4);
+      background: var(--danger-bg);
+      color: #fca5a5;
+      font-size: 0.9rem;
+    }
+    .alerta-erro.visible { display: block; }
+
+    /* ─── Loading overlay ─── */
+    .loading-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(4, 9, 26, 0.75);
+      z-index: 2000;
+      align-items: center;
+      justify-content: center;
+      backdrop-filter: blur(4px);
+    }
+    .loading-overlay.visible { display: flex; }
+
+    .loading-box {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.6rem 2rem;
+      min-width: 280px;
+      text-align: center;
+      box-shadow: 0 0 60px var(--blue-glow);
+    }
+
+    .loading-box img.loading-logo { height: 52px; margin-bottom: 1rem; }
+
+    .gp-spinner {
+      width: 2.2rem; height: 2.2rem;
+      border: 3px solid rgba(59,130,246,.2);
+      border-top-color: var(--blue);
+      border-radius: 50%;
+      animation: spin .75s linear infinite;
+      margin: 0 auto 0.75rem;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .loading-box .lbl-proc {
+      font-family: "Orbitron", sans-serif;
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: var(--blue);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .loading-box .lbl-sub { font-size: 0.8rem; color: var(--muted); margin-top: 0.3rem; }
+
+    /* ─── Métricas ─── */
+    .results { display: none; margin-top: 1.25rem; gap: 1rem; }
+    .results.visible { display: grid; }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0,1fr));
+      gap: 0.75rem;
+    }
+    @media (max-width: 900px) { .metric-grid { grid-template-columns: repeat(2,1fr); } }
+
+    .metric-card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.1rem 1rem;
+      position: relative;
+      overflow: hidden;
+      transition: border-color .2s;
+    }
+    .metric-card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(59,130,246,.04), transparent 60%);
+      pointer-events: none;
+    }
+    .metric-card:hover { border-color: rgba(59,130,246,.4); }
+
+    .metric-card .label {
+      display: block;
+      color: var(--muted);
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      margin-bottom: 0.5rem;
+      font-family: "Orbitron", sans-serif;
+    }
+    .metric-card .value {
+      font-family: "Orbitron", sans-serif;
+      font-size: 1.5rem;
+      font-weight: 700;
+      color: var(--silver);
+      line-height: 1.1;
+    }
+    .metric-card .value.destaque { color: var(--blue); }
+
+    /* ─── Painéis genéricos ─── */
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.1rem 1.25rem 1.25rem;
+    }
+    .panel h2 {
+      font-size: 0.78rem;
+      font-family: "Orbitron", sans-serif;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--blue);
+      margin-bottom: 0.9rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .panel h2::before {
+      content: "";
+      width: 3px; height: 14px;
+      background: linear-gradient(180deg, var(--blue), var(--purple));
+      border-radius: 2px;
+      display: inline-block;
+    }
+
+    .layout-main {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 1rem;
+    }
+    @media (max-width: 992px) { .layout-main { grid-template-columns: 1fr; } }
+
+    /* ─── Imagem debug ─── */
+    .debug-img-wrap {
+      background: #010712;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      min-height: 180px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    .debug-img-wrap img { width: 100%; height: auto; display: block; }
+
+    .chart-wrap { position: relative; height: 300px; }
+
+    /* ─── Infrações ─── */
+    .infracao-excesso {
+      background: rgba(239,68,68,.07);
+      border-left: 3px solid var(--danger);
+    }
+    .infracao-parada {
+      background: rgba(245,158,11,.07);
+      border-left: 3px solid var(--warn);
+    }
+
+    .badge-tipo {
+      font-family: "Orbitron", sans-serif;
+      font-weight: 700;
+      font-size: 0.68rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      border-radius: 4px;
+      padding: 0.2rem 0.4rem;
+    }
+    .badge-excesso { background: rgba(239,68,68,.2); color: #fca5a5; border: 1px solid rgba(239,68,68,.4); }
+    .badge-parada  { background: rgba(245,158,11,.2); color: #fcd34d; border: 1px solid rgba(245,158,11,.4); }
+
+    table.infracoes td, table.infracoes th {
+      vertical-align: middle;
+      font-size: 0.87rem;
+      color: var(--muted2);
+      border-color: var(--border) !important;
+    }
+    table.infracoes th {
+      font-family: "Orbitron", sans-serif;
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--muted);
+      background: transparent !important;
+    }
+
+    /* ─── Tabela de histórico ─── */
+    #tabela-historico { border-collapse: separate; border-spacing: 0 5px; }
+
+    #tabela-historico thead tr {
+      background: transparent;
+    }
+    #tabela-historico thead th {
+      font-family: "Orbitron", sans-serif;
+      font-size: 0.63rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--muted);
+      border: none !important;
+      padding: 0.4rem 0.75rem;
+    }
+
+    #tabela-historico tbody tr {
+      background: rgba(11, 28, 56, 0.7);
+      border-radius: 8px;
+      transition: background .18s, box-shadow .18s, transform .12s;
+      cursor: default;
+      position: relative;
+    }
+    #tabela-historico tbody tr:hover {
+      background: rgba(59, 130, 246, 0.1);
+      box-shadow: 0 0 0 1px rgba(59,130,246,0.28), 0 4px 20px rgba(59,130,246,0.1);
+      transform: translateX(2px);
+    }
+
+    #tabela-historico tbody td {
+      vertical-align: middle;
+      font-size: 0.85rem;
+      color: var(--muted2);
+      border: none !important;
+      padding: 0.7rem 0.75rem;
+    }
+    /* arredonda as células das pontas */
+    #tabela-historico tbody td:first-child { border-radius: 8px 0 0 8px; padding-left: 0; }
+    #tabela-historico tbody td:last-child  { border-radius: 0 8px 8px 0; }
+
+    /* coluna de severidade (barra colorida) */
+    .col-sev { width: 4px; padding: 0 !important; }
+    .sev-bar {
+      width: 4px;
+      min-height: 44px;
+      border-radius: 4px;
+      display: block;
+    }
+    .sev-ok      { background: #22c55e; }
+    .sev-baixo   { background: #f59e0b; }
+    .sev-medio   { background: #f97316; }
+    .sev-alto    { background: #ef4444; box-shadow: 0 0 8px rgba(239,68,68,.5); }
+
+    /* placa */
+    .placa-chip {
+      font-family: "Orbitron", sans-serif;
+      font-weight: 700;
+      font-size: 0.8rem;
+      letter-spacing: 0.1em;
+      color: var(--white);
+      background: rgba(59,130,246,.1);
+      border: 1px solid rgba(59,130,246,.25);
+      border-radius: 6px;
+      padding: 0.25rem 0.55rem;
+      display: inline-block;
+    }
+
+    /* data formatada */
+    .data-cell { line-height: 1.3; }
+    .data-cell .data-dia { font-size: 0.82rem; color: var(--silver); font-weight: 500; }
+    .data-cell .data-hora { font-size: 0.72rem; color: var(--muted); }
+
+    /* badges de infrações */
+    .badge-inf {
+      font-family: "Orbitron", sans-serif;
+      font-weight: 700;
+      font-size: 0.72rem;
+      letter-spacing: 0.04em;
+      border-radius: 20px;
+      padding: 0.22rem 0.6rem;
+      display: inline-block;
+    }
+    .badge-inf-ok    { background: rgba(34,197,94,.15); color: #4ade80; border: 1px solid rgba(34,197,94,.3); }
+    .badge-inf-baixo { background: rgba(245,158,11,.15); color: #fcd34d; border: 1px solid rgba(245,158,11,.3); }
+    .badge-inf-medio { background: rgba(249,115,22,.15); color: #fb923c; border: 1px solid rgba(249,115,22,.3); }
+    .badge-inf-alto  { background: rgba(239,68,68,.15);  color: #fca5a5; border: 1px solid rgba(239,68,68,.35); }
+
+    /* velocidade colorida */
+    .vel-ok   { color: #60a5fa; }
+    .vel-warn { color: #fcd34d; }
+    .vel-danger { color: #fca5a5; }
+
+    .empty-infracoes {
+      color: var(--muted);
+      font-size: 0.9rem;
+      padding: 0.5rem 0;
+    }
+    .empty-infracoes.ok { color: var(--success); }
+
+    /* ─── Histórico ─── */
+    .historico-panel { margin-top: 1.25rem; }
+    .historico-vazio { color: var(--muted); font-size: 0.9rem; padding: 0.5rem 0; }
+
+    .historico-filtro {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+      margin-bottom: 0.85rem;
+    }
+
+    .laudo-acoes {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      margin-top: 0.35rem;
+    }
+
+    /* ─── Contexto e meta ─── */
+    #contexto-detalhe { font-size: 0.83rem; color: var(--muted); }
+    #ultima-gravacao  { font-size: 0.8rem;  color: var(--muted); }
+
+    /* ─── Divisor ─── */
+    .gp-divider {
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--blue), var(--purple), transparent);
+      margin: 1.75rem 0;
+      opacity: 0.35;
+    }
+
+    /* ─── Footer ─── */
+    .gp-footer {
+      margin-top: 2.5rem;
+      text-align: center;
+      font-size: 0.75rem;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+    }
+    .gp-footer img { height: 22px; vertical-align: middle; margin-right: 0.4rem; opacity: .6; }
+
+    /* spinner no botão */
+    .spinner-border-sm {
+      width: .9rem; height: .9rem;
+      border-width: 2px;
+      display: inline-block;
+      border: 2px solid currentColor;
+      border-right-color: transparent;
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+      vertical-align: middle;
+      margin-right: 0.3rem;
+    }
+  </style>
+</head>
+<body>
+<div class="app-shell">
+
+  <!-- ─── HEADER ─── -->
+  <header class="gp-header">
+    <div class="gp-logo-wrap">
+      <img src="/static/img/logo-galaxypro.png" alt="Galaxy Pro" />
+      <div class="gp-brand-text">
+        <div class="gp-brand-title">Galaxy Pro</div>
+        <div class="gp-app-name">CronotaScan</div>
+        <div class="gp-tagline">Leitor de Discos <span>Analógicos</span></div>
+      </div>
+    </div>
+    <div class="gp-tagline" style="font-size:.7rem;text-align:right;line-height:1.7">
+      TECNOLOGIA &bull; <span>DESENVOLVIMENTO</span> &bull; INOVAÇÃO
+    </div>
+  </header>
+
+  <!-- ─── UPLOAD ─── -->
+  <section class="upload-panel" aria-label="Upload do disco">
+    <h2>&#x1F4E5; Novo Escaneamento</h2>
+    <form id="form-upload">
+      <div class="row g-3 align-items-end">
+        <div class="col-auto">
+          <label for="placa_veiculo" class="form-label">Placa do veículo</label>
+          <input class="form-control placa-input" type="text" id="placa_veiculo" name="placa_veiculo"
+            placeholder="ABC-1234" maxlength="10" required autocomplete="off" />
+        </div>
+        <div class="col-md">
+          <label for="arquivo" class="form-label">Arquivo do disco (PNG ou JPG)</label>
+          <div class="file-row">
+            <input class="form-control" style="max-width:340px" type="file" id="arquivo"
+              name="arquivo" accept="image/*" required />
+            <button type="submit" class="btn btn-upload" id="btn-enviar">&#x25B6; Analisar Disco</button>
+            <button type="button" class="btn btn-limpar" id="btn-limpar">&#x21BA; Limpar</button>
+            <span class="file-name" id="nome-arquivo">Nenhum arquivo selecionado</span>
+          </div>
+        </div>
+      </div>
+    </form>
+    <div class="status-msg" id="status" role="status" aria-live="polite"></div>
+    <div class="alerta-erro" id="alerta-erro" role="alert" aria-live="assertive"></div>
+  </section>
+
+  <!-- ─── LOADING ─── -->
+  <div class="loading-overlay" id="loading-overlay" aria-hidden="true">
+    <div class="loading-box">
+      <img class="loading-logo" src="/static/img/logo-galaxypro.png" alt="Galaxy Pro" />
+      <div class="gp-spinner"></div>
+      <div class="lbl-proc">Processando disco...</div>
+      <div class="lbl-sub">Visão computacional em execução</div>
+    </div>
+  </div>
+
+  <!-- ─── RESULTADOS ─── -->
+  <section class="results" id="resultados" aria-live="polite">
+    <div class="metric-grid">
+      <article class="metric-card">
+        <span class="label">&#x1F4CD; Distância estimada</span>
+        <span class="value" id="metrica-distancia">—</span>
+      </article>
+      <article class="metric-card">
+        <span class="label">&#x26A1; Velocidade máxima</span>
+        <span class="value destaque" id="metrica-vmax">—</span>
+      </article>
+      <article class="metric-card">
+        <span class="label">&#x1F4CA; Velocidade média</span>
+        <span class="value" id="metrica-vmedia">—</span>
+      </article>
+      <article class="metric-card">
+        <span class="label">&#x26A0; Infrações</span>
+        <span class="value" id="metrica-infracoes">—</span>
+      </article>
+    </div>
+
+    <div class="laudo-acoes" id="laudo-acoes" hidden>
+      <button type="button" class="btn btn-laudo" id="btn-laudo-resumo">
+        &#x1F4C4; Gerar Laudo PDF
+      </button>
+    </div>
+
+    <p class="small mb-0" id="contexto-detalhe" hidden></p>
+
+    <div class="layout-main">
+      <div class="panel" id="painel-grafico">
+        <h2>Curva de Velocidade</h2>
+        <div class="chart-wrap">
+          <canvas id="grafico-velocidade" aria-label="Gráfico de velocidade"></canvas>
+        </div>
+        <p class="historico-vazio" id="grafico-indisponivel" hidden>
+          Curva disponível apenas no upload recente.
+        </p>
+      </div>
+
+      <div class="panel" id="painel-imagem">
+        <h2>Disco Desdobrado (Debug)</h2>
+        <div class="debug-img-wrap">
+          <img id="img-desdobrada" alt="Imagem desdobrada do disco" hidden />
+        </div>
+        <p class="small mt-2 mb-0" style="color:var(--muted);font-size:.78rem" id="meta-centro"></p>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Infrações e Alertas</h2>
+      <div class="table-responsive">
+        <table class="table table-sm infracoes mb-0" id="tabela-infracoes">
+          <thead>
+            <tr>
+              <th>Tipo</th><th>Início</th><th>Fim</th><th>Detalhe</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <p class="empty-infracoes ok" id="sem-infracoes" hidden>&#x2705; Nenhuma infração detectada nesta viagem.</p>
+    </div>
+  </section>
+
+  <div class="gp-divider"></div>
+
+  <!-- ─── HISTÓRICO ─── -->
+  <section class="panel historico-panel" id="painel-historico" aria-label="Histórico de leituras">
+    <h2>Histórico de Leituras</h2>
+    <div class="historico-filtro">
+      <input class="form-control placa-input" type="text" id="filtro-placa"
+        placeholder="Filtrar por placa" maxlength="10" autocomplete="off" />
+      <button type="button" class="btn btn-filtrar" id="btn-filtrar">&#x1F50D; Filtrar</button>
+      <button type="button" class="btn btn-filtrar" id="btn-limpar-filtro">&#x2715; Limpar</button>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-sm historico mb-0" id="tabela-historico">
+        <thead>
+          <tr>
+            <th style="width:4px;padding:0"></th>
+            <th>Data / Hora</th>
+            <th>Placa</th>
+            <th>Distância</th>
+            <th>Vel. Máx.</th>
+            <th>Situação</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="historico-vazio" id="historico-msg" hidden>Nenhuma leitura encontrada.</p>
+    <p class="small mb-0 mt-2" style="color:var(--muted);font-size:.78rem" id="ultima-gravacao" hidden></p>
+  </section>
+
+  <!-- ─── FOOTER ─── -->
+  <footer class="gp-footer">
+    <img src="/static/img/logo-galaxypro.png" alt="Galaxy Pro" />
+    Galaxy Pro &mdash; Tecnologia &bull; Desenvolvimento &bull; Inovação
+  </footer>
+
+</div><!-- /app-shell -->
+
+<script>
+  /* ─── Refs DOM ─── */
+  const form            = document.getElementById("form-upload");
+  const inputArquivo    = document.getElementById("arquivo");
+  const inputPlaca      = document.getElementById("placa_veiculo");
+  const btnEnviar       = document.getElementById("btn-enviar");
+  const nomeArquivo     = document.getElementById("nome-arquivo");
+  const statusEl        = document.getElementById("status");
+  const resultados      = document.getElementById("resultados");
+  const tbodyInfracoes  = document.querySelector("#tabela-infracoes tbody");
+  const semInfracoes    = document.getElementById("sem-infracoes");
+  const imgDesdobrada   = document.getElementById("img-desdobrada");
+  const metaCentro      = document.getElementById("meta-centro");
+  const ultimaGravacao  = document.getElementById("ultima-gravacao");
+  const filtroPlaca     = document.getElementById("filtro-placa");
+  const btnFiltrar      = document.getElementById("btn-filtrar");
+  const btnLimparFiltro = document.getElementById("btn-limpar-filtro");
+  const tbodyHistorico  = document.querySelector("#tabela-historico tbody");
+  const historicoMsg    = document.getElementById("historico-msg");
+  const tabelaHistorico = document.getElementById("tabela-historico");
+  const contextoDetalhe = document.getElementById("contexto-detalhe");
+  const graficoIndisponivel = document.getElementById("grafico-indisponivel");
+  const chartWrap       = document.querySelector(".chart-wrap");
+  const laudoAcoes      = document.getElementById("laudo-acoes");
+  const btnLaudoResumo  = document.getElementById("btn-laudo-resumo");
+  const alertaErro      = document.getElementById("alerta-erro");
+  const loadingOverlay  = document.getElementById("loading-overlay");
+  const btnLimpar       = document.getElementById("btn-limpar");
+
+  let chartVelocidade = null;
+  let viagemAtualId   = null;
+
+  /* ─── Helpers ─── */
+  function extrairMensagemErro(dados, fallback) {
+    if (!dados) return fallback;
+    if (typeof dados.mensagem === "string" && dados.mensagem) return dados.mensagem;
+    if (typeof dados.detail  === "string" && dados.detail)  return dados.detail;
+    if (Array.isArray(dados.detail)) return dados.detail.map(i => i.msg || JSON.stringify(i)).join(" ");
+    return fallback;
+  }
+
+  function mostrarAlertaErro(msg) {
+    alertaErro.textContent = msg || "Ocorreu um erro ao processar a solicitação.";
+    alertaErro.classList.add("visible");
+  }
+  function limparAlertaErro() {
+    alertaErro.textContent = "";
+    alertaErro.classList.remove("visible");
+  }
+
+  function setLoading(ativo) {
+    loadingOverlay.classList.toggle("visible", ativo);
+    loadingOverlay.setAttribute("aria-hidden", ativo ? "false" : "true");
+    btnEnviar.disabled = ativo;
+    btnLimpar.disabled = ativo;
+  }
+
+  function setStatus(texto, tipo) {
+    statusEl.textContent = texto || "";
+    statusEl.classList.remove("erro", "ok");
+    if (tipo) statusEl.classList.add(tipo);
+  }
+
+  function setCarregando(ativo) {
+    setLoading(ativo);
+    btnEnviar.innerHTML = ativo
+      ? '<span class="spinner-border-sm"></span>Analisando...'
+      : "&#x25B6; Analisar Disco";
+  }
+
+  function abrirLaudoPdf(viagemId) {
+    if (!viagemId) {
+      mostrarAlertaErro("Selecione ou processe uma viagem antes de gerar o laudo PDF.");
+      return;
+    }
+    window.open(`/api/v1/viagens/${viagemId}/pdf`, "_blank");
+  }
+
+  function definirViagemAtual(id) {
+    viagemAtualId = id ? Number(id) : null;
+    if (laudoAcoes) laudoAcoes.hidden = !viagemAtualId;
+  }
+
+  function resetarDashboard() {
+    form.reset();
+    nomeArquivo.textContent = "Nenhum arquivo selecionado";
+    limparAlertaErro();
+    setStatus("", null);
+    definirViagemAtual(null);
+    resultados.classList.remove("visible");
+    contextoDetalhe.hidden = true;
+    contextoDetalhe.textContent = "";
+    ultimaGravacao.hidden = true;
+    if (chartVelocidade) { chartVelocidade.destroy(); chartVelocidade = null; }
+    imgDesdobrada.hidden = true;
+    imgDesdobrada.removeAttribute("src");
+    metaCentro.textContent = "";
+    document.getElementById("metrica-distancia").textContent  = "—";
+    document.getElementById("metrica-vmax").textContent       = "—";
+    document.getElementById("metrica-vmedia").textContent     = "—";
+    document.getElementById("metrica-infracoes").textContent  = "—";
+    tbodyInfracoes.innerHTML = "";
+    document.getElementById("tabela-infracoes").hidden = false;
+    semInfracoes.hidden  = true;
+    graficoIndisponivel.hidden = true;
+    chartWrap.hidden     = false;
+    inputPlaca.focus();
+  }
+
+  /* ─── Inputs ─── */
+  inputPlaca.addEventListener("input",   () => { inputPlaca.value  = inputPlaca.value.toUpperCase(); });
+  filtroPlaca.addEventListener("input",  () => { filtroPlaca.value = filtroPlaca.value.toUpperCase(); });
+  inputArquivo.addEventListener("change", () => {
+    nomeArquivo.textContent = inputArquivo.files?.[0]?.name ?? "Nenhum arquivo selecionado";
+  });
+
+  /* ─── Gráfico ─── */
+  function atualizarGrafico(curva) {
+    graficoIndisponivel.hidden = true;
+    chartWrap.hidden = false;
+    const labels = curva.map(p => p.hora);
+    const dados  = curva.map(p => p.velocidade_kmh);
+    const ctx = document.getElementById("grafico-velocidade");
+    if (chartVelocidade) { chartVelocidade.destroy(); chartVelocidade = null; }
+    chartVelocidade = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels,
+        datasets: [{
+          label: "Velocidade (km/h)",
+          data: dados,
+          borderColor: "#3b82f6",
+          backgroundColor: (ctx) => {
+            const g = ctx.chart.ctx.createLinearGradient(0, 0, 0, 300);
+            g.addColorStop(0, "rgba(59,130,246,0.30)");
+            g.addColorStop(1, "rgba(124,58,237,0.03)");
+            return g;
+          },
+          borderWidth: 2,
+          pointRadius: 0,
+          pointHoverRadius: 4,
+          fill: true,
+          tension: 0.18,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: "rgba(7,17,43,0.92)",
+            borderColor: "rgba(59,130,246,0.35)",
+            borderWidth: 1,
+            titleColor: "#94a3b8",
+            bodyColor: "#e2e8f0",
+            callbacks: { label: ctx => `${ctx.parsed.y} km/h` },
+          },
+        },
+        scales: {
+          x: {
+            title: { display: true, text: "Hora", color: "#64748b" },
+            ticks: { maxTicksLimit: 12, autoSkip: true, color: "#64748b" },
+            grid: { color: "rgba(59,130,246,0.08)" },
+          },
+          y: {
+            title: { display: true, text: "km/h", color: "#64748b" },
+            min: 0, suggestedMax: 120,
+            ticks: { color: "#64748b" },
+            grid: { color: "rgba(59,130,246,0.08)" },
+          },
+        },
+      },
+    });
+  }
+
+  function ocultarGraficoEImagem() {
+    if (chartVelocidade) { chartVelocidade.destroy(); chartVelocidade = null; }
+    chartWrap.hidden = true;
+    graficoIndisponivel.hidden = false;
+    imgDesdobrada.hidden = true;
+    imgDesdobrada.removeAttribute("src");
+    metaCentro.textContent = "Imagem de debug disponível apenas no upload recente.";
+  }
+
+  /* ─── Dashboard ─── */
+  function atualizarResumo(resumo) {
+    document.getElementById("metrica-distancia").textContent = `${Number(resumo.distancia_estimada_km).toFixed(1)} km`;
+    document.getElementById("metrica-vmax").textContent      = `${Number(resumo.velocidade_maxima_kmh).toFixed(1)} km/h`;
+    const media = resumo.velocidade_media_kmh;
+    document.getElementById("metrica-vmedia").textContent    = media == null ? "—" : `${Number(media).toFixed(1)} km/h`;
+    document.getElementById("metrica-infracoes").textContent = String(resumo.total_infracoes ?? 0);
+  }
+
+  function atualizarInfracoes(infracoes) {
+    tbodyInfracoes.innerHTML = "";
+    if (!infracoes?.length) {
+      document.getElementById("tabela-infracoes").hidden = true;
+      semInfracoes.hidden = false;
+      return;
+    }
+    document.getElementById("tabela-infracoes").hidden = false;
+    semInfracoes.hidden = true;
+    for (const item of infracoes) {
+      const tr  = document.createElement("tr");
+      const tipo     = item.tipo || item.tipo_infracao || "";
+      const excesso  = tipo === "excesso_velocidade";
+      tr.className   = excesso ? "infracao-excesso" : "infracao-parada";
+      const badge    = excesso
+        ? '<span class="badge-tipo badge-excesso">Excesso</span>'
+        : '<span class="badge-tipo badge-parada">Parada</span>';
+      const vel      = item.velocidade_maxima_kmh ?? item.velocidade_registrada ?? 0;
+      const duracao  = item.duracao_minutos;
+      const detalhe  = excesso
+        ? (duracao != null ? `Máx. ${vel} km/h · ${duracao} min` : `Máx. ${vel} km/h`)
+        : (duracao != null ? `Parado por ${duracao} min` : "Parada prolongada");
+      tr.innerHTML = `<td>${badge}</td><td>${item.hora_inicio}</td><td>${item.hora_fim}</td><td>${detalhe}</td>`;
+      tbodyInfracoes.appendChild(tr);
+    }
+  }
+
+  function atualizarImagem(payload) {
+    const url = payload.imagem_desdobrada?.url;
+    if (!url) return;
+    imgDesdobrada.src    = `${url}?t=${Date.now()}`;
+    imgDesdobrada.hidden = false;
+    const c = payload.furo_central;
+    metaCentro.textContent = c ? `Centro detectado: (${c.x}, ${c.y}) · raio ${c.raio}px` : "";
+  }
+
+  /* ─── Histórico ─── */
+  async function carregarHistorico(placaFiltro) {
+    const params = new URLSearchParams();
+    if (placaFiltro?.trim()) params.set("placa", placaFiltro.trim().toUpperCase());
+    const url = `/api/v1/viagens${params.toString() ? "?" + params.toString() : ""}`;
+    try {
+      const r = await fetch(url);
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.detail || "Falha ao carregar o histórico.");
+      renderizarHistorico(d.viagens || []);
+    } catch (e) {
+      historicoMsg.hidden      = false;
+      historicoMsg.textContent = e.message || "Erro ao consultar o histórico.";
+      tabelaHistorico.hidden   = true;
+    }
+  }
+
+  function renderizarHistorico(viagens) {
+    tbodyHistorico.innerHTML = "";
+    if (!viagens.length) {
+      tabelaHistorico.hidden   = true;
+      historicoMsg.hidden      = false;
+      historicoMsg.textContent = "Nenhuma leitura encontrada.";
+      return;
+    }
+    tabelaHistorico.hidden = false;
+    historicoMsg.hidden    = true;
+
+    for (const v of viagens) {
+      const inf = Number(v.total_infracoes);
+      const vel = Number(v.velocidade_maxima);
+
+      // ── Severidade (barra lateral) ─────────────────────────────────────
+      const sevClass = inf === 0 ? "sev-ok"
+                     : inf <= 5  ? "sev-baixo"
+                     : inf <= 15 ? "sev-medio"
+                     :             "sev-alto";
+
+      // ── Badge de infrações ─────────────────────────────────────────────
+      const infClass = inf === 0 ? "badge-inf-ok"
+                     : inf <= 5  ? "badge-inf-baixo"
+                     : inf <= 15 ? "badge-inf-medio"
+                     :             "badge-inf-alto";
+      const infLabel = inf === 0 ? "✓ Sem infrações" : `⚠ ${inf}`;
+
+      // ── Cor da velocidade ─────────────────────────────────────────────
+      const velClass = vel <= 80 ? "vel-ok" : vel <= 100 ? "vel-warn" : "vel-danger";
+
+      // ── Formata data "2026-08-13 09:40:37" → dia / hora separados ─────
+      const partes = (v.data_processamento || "").split(" ");
+      const dataDia  = partes[0] || v.data_processamento;
+      const dataHora = partes[1] ? partes[1].slice(0, 5) : "";
+      // converte "2026-08-13" → "13/08/26"
+      const [ano, mes, dia] = dataDia.split("-");
+      const dataFmt = ano ? `${dia}/${mes}/${ano.slice(2)}` : dataDia;
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td class="col-sev"><span class="sev-bar ${sevClass}"></span></td>
+        <td>
+          <div class="data-cell">
+            <div class="data-dia">${dataFmt}</div>
+            <div class="data-hora">${dataHora}</div>
+          </div>
+        </td>
+        <td><span class="placa-chip">${v.placa_veiculo}</span></td>
+        <td style="color:var(--silver);font-weight:500">${Number(v.distancia_total_km).toFixed(1)} km</td>
+        <td class="${velClass}" style="font-weight:600">${vel.toFixed(1)} km/h</td>
+        <td><span class="badge-inf ${infClass}">${infLabel}</span></td>
+        <td class="text-nowrap">
+          <div style="display:flex;gap:.35rem;align-items:center">
+            <button type="button" class="btn btn-detalhes" data-id="${v.id}">Detalhes</button>
+            <button type="button" class="btn btn-laudo-sm" data-pdf-id="${v.id}">📄 PDF</button>
+          </div>
+        </td>`;
+      tbodyHistorico.appendChild(tr);
+    }
+  }
+
+  async function verDetalhesViagem(id) {
+    try {
+      const r = await fetch(`/api/v1/viagens/${id}`);
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.detail || "Viagem não encontrada.");
+      atualizarResumo(d.resumo_viagem);
+      atualizarInfracoes(d.infracoes || []);
+      ocultarGraficoEImagem();
+      definirViagemAtual(d.id);
+      contextoDetalhe.hidden      = false;
+      contextoDetalhe.textContent = `Viagem #${d.id} · ${d.placa_veiculo} · ${d.data_processamento}`;
+      resultados.classList.add("visible");
+      resultados.scrollIntoView({ behavior: "smooth", block: "start" });
+      setStatus(`Detalhes da viagem #${d.id} carregados.`, "ok");
+    } catch (e) {
+      setStatus(e.message || "Falha ao abrir detalhes.", "erro");
+    }
+  }
+
+  /* ─── Eventos ─── */
+  tbodyHistorico.addEventListener("click", ev => {
+    const pdf = ev.target.closest("[data-pdf-id]");
+    if (pdf) { abrirLaudoPdf(Number(pdf.getAttribute("data-pdf-id"))); return; }
+    const det = ev.target.closest(".btn-detalhes");
+    if (det) verDetalhesViagem(Number(det.getAttribute("data-id")));
+  });
+
+  btnLaudoResumo.addEventListener("click",  ()  => abrirLaudoPdf(viagemAtualId));
+  btnLimpar.addEventListener("click",        ()  => { resetarDashboard(); setStatus("Pronto para um novo escaneamento.", "ok"); });
+  btnFiltrar.addEventListener("click",       ()  => carregarHistorico(filtroPlaca.value));
+  btnLimparFiltro.addEventListener("click",  ()  => { filtroPlaca.value = ""; carregarHistorico(); });
+  filtroPlaca.addEventListener("keydown",    ev  => { if (ev.key === "Enter") { ev.preventDefault(); carregarHistorico(filtroPlaca.value); } });
+
+  form.addEventListener("submit", async ev => {
+    ev.preventDefault();
+    limparAlertaErro();
+    const placa   = (inputPlaca.value || "").trim().toUpperCase();
+    const arquivo = inputArquivo.files?.[0];
+    if (!placa)   { const m="Informe a placa do veículo."; setStatus(m,"erro"); mostrarAlertaErro(m); inputPlaca.focus(); return; }
+    if (!arquivo) { const m="Selecione a imagem do disco."; setStatus(m,"erro"); mostrarAlertaErro(m); return; }
+
+    const fd = new FormData();
+    fd.append("arquivo", arquivo);
+    fd.append("placa_veiculo", placa);
+
+    setCarregando(true);
+    setStatus("Processando disco e gravando no banco...", null);
+
+    try {
+      const r = await fetch("/upload-disco/", { method: "POST", body: fd });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(extrairMensagemErro(d, "Falha ao processar o disco."));
+
+      limparAlertaErro();
+      contextoDetalhe.hidden = true;
+      atualizarResumo(d.resumo_viagem);
+      atualizarInfracoes(d.infracoes || []);
+      atualizarGrafico(d.curva_velocidade || d.curva_velocidade_amostra || []);
+      atualizarImagem(d);
+      graficoIndisponivel.hidden = true;
+      chartWrap.hidden = false;
+      if (d.viagem_id) {
+        definirViagemAtual(d.viagem_id);
+        ultimaGravacao.hidden      = false;
+        ultimaGravacao.textContent = `Gravado: viagem #${d.viagem_id} · placa ${d.placa_veiculo}`;
+      }
+      resultados.classList.add("visible");
+      setStatus(d.mensagem || "Análise concluída.", "ok");
+      await carregarHistorico(filtroPlaca.value);
+    } catch (e) {
+      const m = e.message || "Erro inesperado.";
+      setStatus(m, "erro");
+      mostrarAlertaErro(m);
+    } finally {
+      setCarregando(false);
+    }
+  });
+
+  document.addEventListener("DOMContentLoaded", () => carregarHistorico());
+</script>
+</body>
+</html>
