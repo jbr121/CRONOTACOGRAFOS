@@ -411,7 +411,7 @@ async def upload_disco(
             nome_base=nome_origem,
         )
 
-        curva_tratada = leitor.extrair_curva_velocidade(resultado.imagem_desdobrada)
+        curva_tratada = leitor.extrair_curva_velocidade(resultado)
         analise = analisador.analisar_infracoes(
             curva_tratada,
             limite_velocidade=LIMITE_VELOCIDADE_PADRAO_KMH,
@@ -484,8 +484,13 @@ async def upload_disco(
             "url": url_imagem,
             "largura_px": resultado.largura_px,
             "altura_px": resultado.altura_px,
-            "eixo_x": "24 horas",
-            "eixo_y": "velocidade 0 a 120 km/h",
+            "eixo_x": "24 horas (00:00 à esquerda)",
+            "eixo_y": "borda do disco no topo; faixa de velocidade 0–125 km/h e barra de atividade abaixo",
+        },
+        "avisos": resultado.avisos,
+        "qualidade_leitura": {
+            "nota_aneis": resultado.nota_aneis,
+            "escala_radial": resultado.escala_radial,
         },
         "resumo_viagem": resumo,
         "infracoes": infracoes_detectadas,

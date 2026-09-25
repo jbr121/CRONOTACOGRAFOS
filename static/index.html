@@ -1134,6 +1134,7 @@
       }
       resultados.classList.add("visible");
       setStatus(d.mensagem || "Análise concluída.", "ok");
+      if (d.avisos?.length) mostrarAlertaErro("Atenção: " + d.avisos.join(" "));
       await carregarHistorico(filtroPlaca.value);
     } catch (e) {
       const m = e.message || "Erro inesperado.";

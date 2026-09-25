@@ -242,8 +242,8 @@ class GeradorLaudoPDF:
             elementos.append(imagem)
             elementos.append(
                 Paragraph(
-                    "Figura: transformação polar→cartesiana (eixo X ≈ 24 h; "
-                    "eixo Y ≈ 0–120 km/h).",
+                    "Figura: disco retificado e desdobrado (eixo X = 00h a 24h; "
+                    "no topo a borda, abaixo a faixa de velocidade e a barra de atividade).",
                     self._estilos["subtitulo"],
                 )
             )

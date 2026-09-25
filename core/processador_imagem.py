@@ -1,18 +1,29 @@
 """
-Processador de imagem para discos de cronotacógrafo analógico.
+Processador de imagem para discos de cronotacógrafo analógico (VDO 125 km/h).
 
-Fase 1 (PGI): protótipo focado em escaneamentos limpos.
+Leitor v2 — calibrado com fotos reais de celular (ver experimentos/leitura_v2).
 Fluxo principal:
 1. Decodificar a imagem colorida (BGR)
-2. Detectar o centro pela grade verde impressa (fallback: furo físico/Hough)
-3. Desdobrar o disco circular em uma imagem retangular (polar → cartesiana)
-4. Salvar a imagem desdobrada em temp/ (debug)
-5. Extrair a curva de velocidade com tratamento de ruído (grade/sujeira)
+2. Localizar a borda do disco (papel branco) e ajustar uma elipse a ela
+3. Achar o centro real (projetado) do disco: o ponto que deixa os anéis
+   impressos mais nítidos após a retificação
+4. Retificar a perspectiva com uma homografia (elipse → círculo)
+5. Desdobrar o disco (polar → cartesiano) com 1 linha por minuto
+6. Orientar pelo arco verde grosso impresso na borda (12h → 24h)
+7. Extrair a curva de velocidade só nos minutos em que a barra de
+   atividade indica movimento, ignorando a impressão fixa do disco
+
+Layout do disco (fração do raio externo), medido nas amostras:
+- 0,96       borda com a escala de horas
+- 0,63–0,96  velocidade (anéis de 20 km/h em 0,683 / 0,738 / ... / 0,960)
+- ~0,51      barra de atividade (escura = em movimento)
+- 0,35–0,46  zigue-zague de distância (cada traço completo = 5 km)
+- < 0,33     área central manuscrita
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Final, TypedDict
@@ -22,44 +33,58 @@ import numpy as np
 from numpy.typing import NDArray
 
 
-# Constantes do domínio do cronotacógrafo (disco analógico padrão)
+# Constantes do domínio do cronotacógrafo (disco analógico diário)
 HORAS_NO_DIA: Final[int] = 24
 MINUTOS_NO_DIA: Final[int] = HORAS_NO_DIA * 60
-VELOCIDADE_MAXIMA_KMH: Final[int] = 120
+VELOCIDADE_MAXIMA_KMH: Final[int] = 125
 
-# Resolução padrão do desdobramento
-LARGURA_PADRAO_PX: Final[int] = 1440  # 24 h * 60 min → 1 px ≈ 1 minuto
-ALTURA_PADRAO_PX: Final[int] = 480    # faixa de velocidade 0–120 km/h
+# Raio (px) do disco retificado; o desdobramento tem 1 linha por minuto
+RAIO_RETIFICADO_PX: Final[int] = 600
+# Raio menor usado na busca do centro (mais rápido, mesma precisão relativa)
+RAIO_BUSCA_CENTRO_PX: Final[int] = 600
 
-# CORREÇÃO CRÍTICA DOS RAIOS (Kienzle):
-# - 0.52 elimina o miolo escrito (data, nome, odômetro e furo pera)
-# - 0.82 limita o topo do gráfico antes das atividades de trabalho
-FRACAO_RAIO_MIN_VELOCIDADE: Final[float] = 0.52
-FRACAO_RAIO_MAX_VELOCIDADE: Final[float] = 0.82
+# Escala de velocidade (VDO 125 km/h): raio de 0 km/h e de 120 km/h
+FRACAO_RAIO_0_KMH: Final[float] = 0.628
+FRACAO_RAIO_120_KMH: Final[float] = 0.960
+KMH_POR_FRACAO_RAIO: Final[float] = 120.0 / (FRACAO_RAIO_120_KMH - FRACAO_RAIO_0_KMH)
 
-# Critérios para aceitar um traço de estilete na coluna
-CONTRASTE_MINIMO_TRACO: Final[int] = 28
-PIXEIS_ESCUROS_MINIMOS: Final[int] = 4
+# Faixas lidas (fração do raio)
+FAIXA_TRACO_VELOCIDADE: Final[tuple[float, float]] = (0.640, 0.955)
+FAIXA_ATIVIDADE: Final[tuple[float, float]] = (0.485, 0.530)
+FAIXA_ARCO_VERDE: Final[tuple[float, float]] = (0.945, 0.980)
+# Recorte salvo como imagem de debug: da barra de atividade até a borda
+FAIXA_IMAGEM_DEBUG: Final[tuple[float, float]] = (0.46, 1.0)
 
-# Faixa HSV do verde impresso do disco (grade/escala de velocidade).
-# H no OpenCV vai de 0 a 179; o verde do papel varia entre esverdeado e oliva.
-VERDE_HSV_BAIXO: Final[tuple[int, int, int]] = (30, 20, 20)
-VERDE_HSV_ALTO: Final[tuple[int, int, int]] = (95, 255, 255)
-# Fração mínima de pixels verdes para considerar a grade detectável
-FRACAO_MINIMA_VERDE: Final[float] = 0.004
+# Limiares do traço (diferença para o fundo local, canal V do HSV)
+CONTRASTE_TINTA_VELOCIDADE: Final[float] = 30.0
+CONTRASTE_TINTA_ATIVIDADE: Final[float] = 25.0
+# Fração mínima da faixa de atividade escura para considerar "em movimento"
+FRACAO_ATIVIDADE_MOVIMENTO: Final[float] = 0.15
+# Buracos menores que isto na barra de atividade são preenchidos (minutos)
+LACUNA_MAXIMA_ATIVIDADE_MIN: Final[int] = 4
+# Raio considerado "impressão fixa" se estiver escuro em > 8% dos minutos parados
+FRACAO_IMPRESSO_FIXO: Final[float] = 0.08
 
-# CLAHE (equalização adaptativa) — normaliza sombras e reflexos do papel brilhante
-CLAHE_CLIP_LIMIT: Final[float] = 2.0
-CLAHE_TILE_GRID: Final[tuple[int, int]] = (8, 8)
+# Faixa HSV do verde impresso do disco
+VERDE_HSV_BAIXO: Final[tuple[int, int, int]] = (30, 60, 20)
+VERDE_HSV_ALTO: Final[tuple[int, int, int]] = (90, 255, 255)
 
-# Correção de perspectiva: só corrige se a elipse detectada estiver dentro
-# desta faixa de razão entre eixos (evita "corrigir" fits ruins/absurdos)
-RAZAO_ELIPSE_MINIMA: Final[float] = 1.08
-RAZAO_ELIPSE_MAXIMA: Final[float] = 1.80
+# Anéis tracejados de 20/40/60/80/100 km/h (fração do raio) usados para validar
+# a retificação e autocalibrar a escala radial (variação real medida: ±3%)
+ANEIS_ESCALA_VELOCIDADE: Final[tuple[float, ...]] = (0.683, 0.738, 0.793, 0.848, 0.905)
+ESCALA_RADIAL_MIN_MAX: Final[tuple[float, float]] = (0.97, 1.03)
+# Nota dos anéis (resposta nos raios esperados / mediana da faixa):
+# abaixo do mínimo a foto é recusada; abaixo do "confiável" gera aviso
+NOTA_ANEIS_MINIMA: Final[float] = 1.4
+NOTA_ANEIS_CONFIAVEL: Final[float] = 2.0
+# Pixels verdes por linha (média na metade 12h–24h) abaixo disto = orientação incerta
+VERDE_MINIMO_ARCO: Final[float] = 0.8
 
 # Pasta de debug na raiz do projeto
 RAIZ_PROJETO: Final[Path] = Path(__file__).resolve().parent.parent
 PASTA_TEMP: Final[Path] = RAIZ_PROJETO / "temp"
+
+Elipse = tuple[tuple[float, float], tuple[float, float], float]
 
 
 class PontoVelocidade(TypedDict):
@@ -70,7 +95,7 @@ class PontoVelocidade(TypedDict):
 
 @dataclass(frozen=True, slots=True)
 class CirculoDetectado:
-    """Representa o furo central encontrado na imagem."""
+    """Centro real do disco (coordenadas da foto) e raio médio da borda."""
     centro_x: int
     centro_y: int
     raio: int
@@ -84,6 +109,13 @@ class ResultadoProcessamento:
     imagem_desdobrada: NDArray[np.uint8]
     largura_px: int
     altura_px: int
+    # Disco desdobrado inteiro (BGR), linha 0 = 00:00, coluna = raio em px
+    polar_orientado: NDArray[np.uint8]
+    # Fator que corrige os raios padrão para este disco/foto (autocalibração)
+    escala_radial: float = 1.0
+    # Nota de alinhamento dos anéis impressos (>= 2 é leitura confiável)
+    nota_aneis: float = 0.0
+    avisos: list[str] = field(default_factory=list)
 
 
 class ErroProcessamentoDisco(Exception):
@@ -95,35 +127,68 @@ class ImagemInvalidaError(ErroProcessamentoDisco):
 
 
 class FuroNaoEncontradoError(ErroProcessamentoDisco):
-    """Não foi possível localizar o furo central com HoughCircles."""
+    """Não foi possível localizar o disco / seu centro na foto."""
+
+
+def _canal_brancura(imagem_bgr: NDArray[np.uint8]) -> NDArray[np.uint8]:
+    """Papel branco = brilho alto e saturação baixa; fundo colorido/escuro some."""
+    hsv = cv2.cvtColor(imagem_bgr, cv2.COLOR_BGR2HSV)
+    s = hsv[..., 1].astype(np.int16)
+    v = hsv[..., 2].astype(np.int16)
+    return np.clip(v - s, 0, 255).astype(np.uint8)
+
+
+def _mascara_verde(imagem_bgr: NDArray[np.uint8]) -> NDArray[np.bool_]:
+    hsv = cv2.cvtColor(imagem_bgr, cv2.COLOR_BGR2HSV)
+    return cv2.inRange(hsv, np.array(VERDE_HSV_BAIXO), np.array(VERDE_HSV_ALTO)) > 0
+
+
+def _pontos_elipse(elipse: Elipse, n: int = 360) -> NDArray[np.float64]:
+    (ex, ey), (eixo_a, eixo_b), angulo = elipse
+    t = np.linspace(0, 2 * np.pi, n, endpoint=False)
+    a = np.deg2rad(angulo)
+    x = eixo_a / 2 * np.cos(t)
+    y = eixo_b / 2 * np.sin(t)
+    return np.stack([ex + x * np.cos(a) - y * np.sin(a), ey + x * np.sin(a) + y * np.cos(a)], 1)
+
+
+def _conica(elipse: Elipse) -> NDArray[np.float64]:
+    """Matriz 3x3 da cônica (x^T C x = 0) que representa a elipse."""
+    p = _pontos_elipse(elipse, 60)
+    x, y = p[:, 0], p[:, 1]
+    d = np.stack([x * x, x * y, y * y, x, y, np.ones_like(x)], 1)
+    a, b, c, dd, e, f = np.linalg.svd(d)[2][-1]
+    return np.array([[a, b / 2, dd / 2], [b / 2, c, e / 2], [dd / 2, e / 2, f]])
+
+
+def _desdobrar_polar(imagem: NDArray[np.uint8], raio: int, linhas: int) -> NDArray[np.uint8]:
+    """Linhas = ângulo (sentido horário na foto), colunas = raio de 0 a `raio`."""
+    return cv2.warpPolar(
+        imagem, (raio, linhas), (raio, raio), raio,
+        cv2.WARP_POLAR_LINEAR + cv2.INTER_LINEAR,
+    )
 
 
 class LeitorDisco:
     """
-    Classe responsável por transformar um escaneamento circular
-    em uma representação retangular (tempo × velocidade).
+    Transforma a foto de um disco de cronotacógrafo em uma curva
+    tempo × velocidade (1 ponto por minuto, 00:00 a 23:59).
     """
 
     def __init__(
         self,
-        largura_desdobramento: int = LARGURA_PADRAO_PX,
-        altura_desdobramento: int = ALTURA_PADRAO_PX,
+        raio_retificado: int = RAIO_RETIFICADO_PX,
         velocidade_maxima_kmh: int = VELOCIDADE_MAXIMA_KMH,
-        fracao_raio_min: float = FRACAO_RAIO_MIN_VELOCIDADE,
-        fracao_raio_max: float = FRACAO_RAIO_MAX_VELOCIDADE,
     ) -> None:
-        if largura_desdobramento <= 0 or altura_desdobramento <= 0:
-            raise ValueError("As dimensões do desdobramento devem ser positivas.")
+        if raio_retificado < 100:
+            raise ValueError("O raio retificado deve ser de pelo menos 100 px.")
         if velocidade_maxima_kmh <= 0:
             raise ValueError("A velocidade máxima deve ser positiva.")
-        if not (0.0 < fracao_raio_min < fracao_raio_max <= 1.0):
-            raise ValueError("As frações de raio devem obedecer: 0 < min < max <= 1.")
 
-        self.largura_desdobramento = largura_desdobramento
-        self.altura_desdobramento = altura_desdobramento
+        self.raio_retificado = raio_retificado
         self.velocidade_maxima_kmh = velocidade_maxima_kmh
-        self.fracao_raio_min = fracao_raio_min
-        self.fracao_raio_max = fracao_raio_max
+
+    # ------------------------------------------------------------------ entrada
 
     def _decodificar_bgr(self, dados_imagem: bytes) -> NDArray[np.uint8]:
         """Decodifica os bytes recebidos em uma imagem colorida (BGR) validada."""
@@ -139,432 +204,406 @@ class LeitorDisco:
         if imagem_bgr is None:
             raise ImagemInvalidaError("Não foi possível decodificar a imagem.")
 
-        if imagem_bgr.size == 0 or min(imagem_bgr.shape[:2]) < 50:
-            raise ImagemInvalidaError("A imagem é muito pequena ou inválida.")
+        if imagem_bgr.size == 0 or min(imagem_bgr.shape[:2]) < 200:
+            raise ImagemInvalidaError(
+                "A imagem é muito pequena. Envie a foto com pelo menos 200 px no menor lado."
+            )
 
         return imagem_bgr
 
-    def carregar_imagem_cinza(self, dados_imagem: bytes) -> NDArray[np.uint8]:
-        """Compatibilidade: decodifica e converte diretamente para escala de cinza."""
-        return cv2.cvtColor(self._decodificar_bgr(dados_imagem), cv2.COLOR_BGR2GRAY)
+    # --------------------------------------------------------- borda do disco
 
-    def _equalizar_iluminacao(
-        self,
-        imagem_cinza: NDArray[np.uint8],
-    ) -> NDArray[np.uint8]:
-        """
-        Equalização adaptativa de contraste (CLAHE).
-
-        Por quê: fotos do mesmo disco variam muito com luz/ângulo. Sombras
-        "apagam" o traço do estilete e reflexos "estouram" o papel. O CLAHE
-        normaliza o brilho por regiões (tiles), preservando o contraste local
-        do traço sem estourar a imagem inteira como faria uma equalização global.
-        Isto reduz drasticamente a instabilidade entre fotos diferentes.
-        """
-        clahe = cv2.createCLAHE(
-            clipLimit=CLAHE_CLIP_LIMIT,
-            tileGridSize=CLAHE_TILE_GRID,
+    def _candidatos_hough(self, canal: NDArray[np.uint8]) -> list[tuple[float, float, float]]:
+        altura, largura = canal.shape
+        escala = 480.0 / max(altura, largura)
+        pequena = cv2.resize(canal, None, fx=escala, fy=escala, interpolation=cv2.INTER_AREA)
+        pequena = cv2.GaussianBlur(pequena, (5, 5), 1.5)
+        menor = min(pequena.shape)
+        circulos = cv2.HoughCircles(
+            pequena, cv2.HOUGH_GRADIENT, dp=1.5, minDist=max(4, menor // 20),
+            param1=80, param2=30, minRadius=int(menor * 0.25), maxRadius=int(menor * 0.75),
         )
-        return clahe.apply(imagem_cinza)
+        if circulos is None:
+            return []
+        return [(x / escala, y / escala, r / escala) for x, y, r in circulos[0][:10]]
 
-    def _mascara_verde(
-        self,
-        imagem_bgr: NDArray[np.uint8],
-    ) -> NDArray[np.uint8] | None:
-        """
-        Isola a tinta verde impressa (grade/escala) no espaço HSV.
-
-        HSV separa cor (matiz) de brilho, então a máscara verde sobrevive a
-        variações de iluminação melhor do que limiares em RGB/cinza.
-        """
-        if imagem_bgr is None or imagem_bgr.ndim != 3:
-            return None
-
-        hsv = cv2.cvtColor(imagem_bgr, cv2.COLOR_BGR2HSV)
-        baixo = np.array(VERDE_HSV_BAIXO, dtype=np.uint8)
-        alto = np.array(VERDE_HSV_ALTO, dtype=np.uint8)
-        mascara = cv2.inRange(hsv, baixo, alto)
-
-        # Abertura remove respingos; fechamento reconecta as finas linhas da grade
-        nucleo = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        mascara = cv2.morphologyEx(mascara, cv2.MORPH_OPEN, nucleo, iterations=1)
-        mascara = cv2.morphologyEx(mascara, cv2.MORPH_CLOSE, nucleo, iterations=1)
-        return mascara
-
-    def detectar_centro(
-        self,
-        imagem_bgr: NDArray[np.uint8],
-        imagem_cinza: NDArray[np.uint8],
-        mascara_verde: NDArray[np.uint8] | None = None,
-    ) -> CirculoDetectado:
-        """
-        Determina o centro/raio de referência do disco.
-
-        Estratégia principal (mais precisa para o warpPolar):
-        - Isola a cor verde da grade impressa e usa o centroide dela como centro
-          absoluto, e o anel externo verde como raio de referência.
-        Fallback:
-        - Se a grade verde não for detectável, cai para HoughCircles + centroide
-          do furo físico.
-        """
-        centro_verde = self.encontrar_centro_pela_grade_verde(
-            imagem_bgr,
-            mascara_verde,
-        )
-        if centro_verde is not None:
-            return centro_verde
-        return self.encontrar_furo_central(imagem_cinza)
-
-    def encontrar_centro_pela_grade_verde(
-        self,
-        imagem_bgr: NDArray[np.uint8],
-        mascara_verde: NDArray[np.uint8] | None = None,
-    ) -> CirculoDetectado | None:
-        """
-        Usa a tinta verde impressa (círculos de escala) como referência absoluta.
-
-        Por que isto corrige a ondulação:
-        - O furo físico (formato pera) fica levemente deslocado do centro da
-          impressão. A grade verde é concêntrica e simétrica, então o centroide
-          da máscara verde coincide com o centro real da escala de velocidade.
-        - O raio é refinado com cv2.minEnclosingCircle sobre os pontos verdes,
-          que cerca a escala completa independentemente de pequenas assimetrias.
-
-        Retorna None se não houver verde suficiente (deixa o fallback assumir).
-        """
-        if imagem_bgr is None or imagem_bgr.ndim != 3:
-            return None
-
-        altura, largura = imagem_bgr.shape[:2]
-        mascara = mascara_verde if mascara_verde is not None else self._mascara_verde(imagem_bgr)
-        if mascara is None:
-            return None
-
-        ys, xs = np.nonzero(mascara)
-        total_pixels = altura * largura
-        if xs.size < max(50, int(total_pixels * FRACAO_MINIMA_VERDE)):
-            return None
-
-        # Verde ocupando quase tudo → provavelmente fundo verde, não a grade
-        if xs.size > total_pixels * 0.6:
-            return None
-
-        # 1ª estimativa do centro: centroide de toda a máscara verde
-        cx = float(xs.mean())
-        cy = float(ys.mean())
-
-        # Refino: recalcula o centroide considerando só o anel externo da grade
-        # (reduz o peso de manuscritos/carimbos verdes no miolo)
-        distancias = np.sqrt((xs - cx) ** 2 + (ys - cy) ** 2)
-        raio_externo = float(np.percentile(distancias, 98))
-        if raio_externo <= 1.0:
-            return None
-
-        anel = distancias >= (raio_externo * 0.55)
-        if int(np.count_nonzero(anel)) >= 50:
-            cx = float(xs[anel].mean())
-            cy = float(ys[anel].mean())
-
-        # Raio absoluto: menor círculo que envolve toda a tinta verde
-        pontos = np.column_stack((xs, ys)).astype(np.float32)
-        (_, _), raio_menor_circulo = cv2.minEnclosingCircle(pontos)
-        # Combina percentil (robusto a outliers) com o círculo envolvente
-        distancias = np.sqrt((xs - cx) ** 2 + (ys - cy) ** 2)
-        raio_p98 = float(np.percentile(distancias, 98))
-        raio_externo = float(min(raio_menor_circulo, raio_p98 * 1.05))
-
-        centro_x = int(round(cx))
-        centro_y = int(round(cy))
-        raio = int(round(raio_externo))
-
-        if not (0 <= centro_x < largura and 0 <= centro_y < altura):
-            return None
-        if raio <= 5:
-            return None
-
-        return CirculoDetectado(centro_x=centro_x, centro_y=centro_y, raio=raio)
-
-    def corrigir_perspectiva(
-        self,
-        imagem_cinza: NDArray[np.uint8],
-        circulo: CirculoDetectado,
-        mascara_verde: NDArray[np.uint8] | None,
-    ) -> tuple[NDArray[np.uint8], CirculoDetectado]:
-        """
-        Corrige a distorção de perspectiva (elipse → círculo).
-
-        Motivo: se a foto foi tirada em ângulo, o disco circular aparece como
-        elipse. Ao desdobrar (warpPolar) uma elipse, um mesmo raio real cai em
-        posições diferentes conforme o ângulo, deslocando a curva de velocidade
-        (daí a divergência de km entre fotos). Ajustamos uma elipse à grade verde
-        e aplicamos um warpAffine anisotrópico que estica o eixo menor até igualar
-        o maior, devolvendo um círculo perfeito antes do desdobramento.
-
-        Se não houver elipse confiável, retorna a imagem e o círculo inalterados.
-        """
-        if mascara_verde is None:
-            return imagem_cinza, circulo
-
-        contornos, _ = cv2.findContours(
-            mascara_verde,
-            cv2.RETR_EXTERNAL,
-            cv2.CHAIN_APPROX_SIMPLE,
-        )
-        contornos = [c for c in contornos if len(c) >= 5]
-        if not contornos:
-            return imagem_cinza, circulo
-
-        maior = max(contornos, key=cv2.contourArea)
-        (ex, ey), (eixo1, eixo2), angulo = cv2.fitEllipse(maior)
-
-        semi1 = float(eixo1) / 2.0
-        semi2 = float(eixo2) / 2.0
-        if semi1 <= 1.0 or semi2 <= 1.0:
-            return imagem_cinza, circulo
-
-        razao = max(semi1, semi2) / min(semi1, semi2)
-        # Fora da faixa: ou é praticamente círculo (não precisa), ou fit ruim
-        if razao < RAZAO_ELIPSE_MINIMA or razao > RAZAO_ELIPSE_MAXIMA:
-            return imagem_cinza, circulo
-
-        # Monta a transformação afim que circulariza a elipse em torno do centro.
-        # Direções dos eixos da elipse: u (ângulo) e v (ângulo + 90°).
-        theta = np.deg2rad(float(angulo))
-        rot = np.array(
-            [[np.cos(theta), -np.sin(theta)],
-             [np.sin(theta), np.cos(theta)]],
-            dtype=np.float64,
-        )
-        raio_alvo = max(semi1, semi2)
-        escala = np.diag([raio_alvo / semi1, raio_alvo / semi2])
-        matriz_2x2 = rot @ escala @ rot.T
-
-        centro = np.array([float(ex), float(ey)], dtype=np.float64)
-        deslocamento = centro - matriz_2x2 @ centro
-        matriz_afim = np.hstack([matriz_2x2, deslocamento.reshape(2, 1)]).astype(np.float32)
-
-        altura, largura = imagem_cinza.shape[:2]
-        corrigida = cv2.warpAffine(
-            imagem_cinza,
-            matriz_afim,
-            (largura, altura),
-            flags=cv2.INTER_LINEAR,
-            borderMode=cv2.BORDER_CONSTANT,
-            borderValue=255,
-        )
-
-        novo_circulo = CirculoDetectado(
-            centro_x=int(round(float(ex))),
-            centro_y=int(round(float(ey))),
-            raio=int(round(float(raio_alvo))),
-        )
-        return corrigida, novo_circulo
-
-    def encontrar_furo_central(
-        self,
-        imagem_cinza: NDArray[np.uint8],
-    ) -> CirculoDetectado:
-        if imagem_cinza is None or imagem_cinza.ndim != 2:
-            raise ImagemInvalidaError("A imagem deve estar em escala de cinza.")
-
-        altura, largura = imagem_cinza.shape
-        menor_lado = min(altura, largura)
-        suavizada = cv2.GaussianBlur(imagem_cinza, (9, 9), 2)
-
-        raio_minimo = max(10, menor_lado // 40)
-        raio_maximo = max(raio_minimo + 1, menor_lado // 8)
-
-        candidatos: NDArray[np.int_] | None = None
-        for param2 in (30, 22, 16):
-            circulos = cv2.HoughCircles(
-                image=suavizada,
-                method=cv2.HOUGH_GRADIENT,
-                dp=1.2,
-                minDist=max(1, menor_lado // 4),
-                param1=100,
-                param2=param2,
-                minRadius=raio_minimo,
-                maxRadius=raio_maximo,
-            )
-            if circulos is not None:
-                candidatos = np.round(circulos[0]).astype(int)
+    def _candidatos_contorno(self, canal: NDArray[np.uint8]) -> list[tuple[float, float, float]]:
+        """Arcos longos de borda viram elipses candidatas (cobre falhas do Hough)."""
+        menor = min(canal.shape)
+        borda = cv2.Canny(cv2.GaussianBlur(canal, (5, 5), 0), 30, 90)
+        borda = cv2.dilate(borda, np.ones((3, 3), np.uint8))
+        contornos, _ = cv2.findContours(borda, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
+        candidatos: list[tuple[float, float, float]] = []
+        for contorno in sorted(contornos, key=len, reverse=True)[:25]:
+            if len(contorno) < 150:
                 break
+            (ex, ey), (eixo_a, eixo_b), _ = cv2.fitEllipse(contorno)
+            raio = (eixo_a + eixo_b) / 4
+            if menor * 0.25 <= raio <= menor * 0.75 and min(eixo_a, eixo_b) / max(eixo_a, eixo_b) > 0.6:
+                candidatos.append((ex, ey, raio))
+        return candidatos
 
-        if candidatos is None or len(candidatos) == 0:
-            raise FuroNaoEncontradoError("Não foi possível localizar o centro do disco.")
-
-        centro_imagem_x = largura / 2.0
-        centro_imagem_y = altura / 2.0
-        melhor = min(
-            candidatos,
-            key=lambda c: (float(c[0]) - centro_imagem_x) ** 2
-            + (float(c[1]) - centro_imagem_y) ** 2,
-        )
-
-        centro_hough_x = int(melhor[0])
-        centro_hough_y = int(melhor[1])
-        raio_hough = int(melhor[2])
-
-        # Refina o centro para furo em formato de pera
-        refinado = self._refinar_centro_por_contornos(
-            imagem_cinza,
-            centro_hough_x,
-            centro_hough_y,
-            raio_hough,
-        )
-        if refinado is not None:
-            centro_x, centro_y, raio = refinado
-        else:
-            centro_x, centro_y, raio = centro_hough_x, centro_hough_y, raio_hough
-
-        return CirculoDetectado(centro_x=centro_x, centro_y=centro_y, raio=raio)
-
-    def _refinar_centro_por_contornos(
+    def _refinar_elipse(
         self,
-        imagem_cinza: NDArray[np.uint8],
-        centro_x: int,
-        centro_y: int,
-        raio: int,
-    ) -> tuple[int, int, int] | None:
-        altura, largura = imagem_cinza.shape
-        margem = max(int(raio * 2.8), 24)
-        x0 = max(0, centro_x - margem)
-        y0 = max(0, centro_y - margem)
-        x1 = min(largura, centro_x + margem)
-        y1 = min(altura, centro_y + margem)
-
-        roi = imagem_cinza[y0:y1, x0:x1]
-        if roi.size == 0 or min(roi.shape) < 10:
-            return None
-
-        suavizada = cv2.GaussianBlur(roi, (5, 5), 0)
-        _, binaria = cv2.threshold(
-            suavizada,
-            0,
-            255,
-            cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU,
-        )
-
-        nucleo = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        binaria = cv2.morphologyEx(binaria, cv2.MORPH_OPEN, nucleo, iterations=1)
-        binaria = cv2.morphologyEx(binaria, cv2.MORPH_CLOSE, nucleo, iterations=2)
-
-        contornos, _ = cv2.findContours(
-            binaria,
-            cv2.RETR_EXTERNAL,
-            cv2.CHAIN_APPROX_SIMPLE,
-        )
-        if not contornos:
-            return None
-
-        area_min = max(40.0, float(np.pi * (raio * 0.35) ** 2))
-        area_max = float(np.pi * (raio * 2.8) ** 2)
-        cx_local = float(centro_x - x0)
-        cy_local = float(centro_y - y0)
-
-        melhor_contorno = None
-        melhor_score = float("inf")
-
-        for contorno in contornos:
-            area = float(cv2.contourArea(contorno))
-            if area < area_min or area > area_max:
+        canal: NDArray[np.uint8],
+        x: float,
+        y: float,
+        raio: float,
+        n: int = 360,
+    ) -> tuple[Elipse, float] | None:
+        """
+        Busca radial da borda: em cada ângulo, maior queda de brilho perto de `raio`.
+        Devolve a elipse ajustada e a fração de ângulos que confirmaram a borda.
+        """
+        suave = cv2.GaussianBlur(canal, (5, 5), 0).astype(np.float32)
+        altura, largura = suave.shape
+        pontos = []
+        raios = np.arange(raio * 0.8, raio * 1.2, 1.0)
+        for t in np.linspace(0, 2 * np.pi, n, endpoint=False):
+            xs = x + raios * np.cos(t)
+            ys = y + raios * np.sin(t)
+            ok = (xs >= 1) & (xs < largura - 1) & (ys >= 1) & (ys < altura - 1)
+            if ok.sum() < 10:
                 continue
-
-            momentos = cv2.moments(contorno)
-            if momentos["m00"] == 0:
+            perfil = cv2.remap(
+                suave,
+                xs[ok].astype(np.float32).reshape(1, -1),
+                ys[ok].astype(np.float32).reshape(1, -1),
+                cv2.INTER_LINEAR,
+            )[0]
+            queda = perfil[:-4] - perfil[4:]
+            i = int(np.argmax(queda))
+            if queda[i] < 12:
                 continue
+            r = raios[ok][i + 2]
+            pontos.append((x + r * np.cos(t), y + r * np.sin(t)))
 
-            mx = float(momentos["m10"] / momentos["m00"])
-            my = float(momentos["m01"] / momentos["m00"])
-            dist2 = (mx - cx_local) ** 2 + (my - cy_local) ** 2
-
-            score = dist2 / max(area, 1.0)
-            if score < melhor_score:
-                melhor_score = score
-                melhor_contorno = contorno
-
-        if melhor_contorno is None:
+        if len(pontos) < 60:
             return None
 
-        momentos = cv2.moments(melhor_contorno)
-        if momentos["m00"] == 0:
-            return None
+        pts = np.array(pontos, np.float32)
+        # Descarta pontos longe da elipse (sombras, objetos encostados no disco)
+        for _ in range(3):
+            (ex, ey), (eixo_a, eixo_b), ang = cv2.fitEllipse(pts)
+            c, s = np.cos(np.deg2rad(ang)), np.sin(np.deg2rad(ang))
+            dx, dy = pts[:, 0] - ex, pts[:, 1] - ey
+            u = (dx * c + dy * s) / (eixo_a / 2)
+            v = (-dx * s + dy * c) / (eixo_b / 2)
+            residuo = np.abs(np.sqrt(u * u + v * v) - 1)
+            if (residuo < 0.02).sum() > 40:
+                pts = pts[residuo < 0.02]
+        return cv2.fitEllipse(pts), len(pts) / n
 
-        centro_ref_x = int(round(momentos["m10"] / momentos["m00"] + x0))
-        centro_ref_y = int(round(momentos["m01"] / momentos["m00"] + y0))
+    @staticmethod
+    def _contraste_borda(canal: NDArray[np.uint8], elipse: Elipse) -> float:
+        """Brilho logo dentro da elipse menos brilho logo fora."""
+        (ex, ey), (eixo_a, eixo_b), ang = elipse
+        if min(eixo_a, eixo_b) / max(eixo_a, eixo_b) < 0.6:
+            return -1.0
+        dentro = np.zeros(canal.shape, np.uint8)
+        fora = np.zeros(canal.shape, np.uint8)
+        cv2.ellipse(dentro, ((ex, ey), (eixo_a * 0.97, eixo_b * 0.97), ang), 255, -1)
+        cv2.ellipse(dentro, ((ex, ey), (eixo_a * 0.80, eixo_b * 0.80), ang), 0, -1)
+        cv2.ellipse(fora, ((ex, ey), (eixo_a * 1.15, eixo_b * 1.15), ang), 255, -1)
+        cv2.ellipse(fora, ((ex, ey), (eixo_a * 1.03, eixo_b * 1.03), ang), 0, -1)
+        if cv2.countNonZero(fora) < 100:
+            return -1.0
+        return float(cv2.mean(canal, dentro)[0] - cv2.mean(canal, fora)[0])
 
-        area = float(cv2.contourArea(melhor_contorno))
-        raio_equiv = int(max(1, round(np.sqrt(area / np.pi))))
+    def detectar_borda_disco(self, imagem_bgr: NDArray[np.uint8]) -> Elipse:
+        """
+        Elipse da borda do disco na foto.
 
-        if not (0 <= centro_ref_x < largura and 0 <= centro_ref_y < altura):
-            return None
+        Gera candidatos (Hough + contornos) nos canais de brancura e de cinza,
+        refina cada um pela borda real e escolhe o de maior
+        contraste dentro/fora × suporte de borda².
+        """
+        brancura = _canal_brancura(imagem_bgr)
+        cinza = cv2.cvtColor(imagem_bgr, cv2.COLOR_BGR2GRAY)
+        candidatos = (
+            self._candidatos_hough(brancura) + self._candidatos_hough(cinza)
+            + self._candidatos_contorno(brancura) + self._candidatos_contorno(cinza)
+        )
 
-        return centro_ref_x, centro_ref_y, raio_equiv
+        melhor: Elipse | None = None
+        melhor_pontuacao = 0.0
+        for x, y, raio in candidatos:
+            for base in (brancura, cinza):
+                refinado = self._refinar_elipse(base, x, y, raio)
+                if refinado is None:
+                    continue
+                elipse, suporte = refinado
+                contraste = max(
+                    self._contraste_borda(brancura, elipse),
+                    self._contraste_borda(cinza, elipse),
+                    0.0,
+                )
+                pontuacao = contraste * suporte ** 2
+                if pontuacao > melhor_pontuacao:
+                    melhor, melhor_pontuacao = elipse, pontuacao
 
-    def _calcular_raios_anel_velocidade(
+        if melhor is None:
+            raise FuroNaoEncontradoError(
+                "Não foi possível localizar o disco na foto. Fotografe o disco inteiro, "
+                "de cima, sobre um fundo escuro e sem reflexos."
+            )
+        return melhor
+
+    # ------------------------------------------------ perspectiva e centro real
+
+    def _homografia(self, elipse: Elipse, centro: tuple[float, float], raio: int) -> NDArray[np.float64]:
+        """
+        Homografia que leva a elipse da borda a um círculo de raio `raio`
+        centrado em (raio, raio), com `centro` (ponto da foto) indo para o meio.
+
+        A reta polar do centro em relação à cônica da borda é a imagem da
+        reta no infinito; mandá-la de volta ao infinito remove a perspectiva,
+        e um afim final transforma a elipse restante em círculo.
+        """
+        l = _conica(elipse) @ np.array([centro[0], centro[1], 1.0])
+        h_afim = np.array([[1, 0, 0], [0, 1, 0], [l[0] / l[2], l[1] / l[2], 1]])
+
+        pts = cv2.perspectiveTransform(_pontos_elipse(elipse).reshape(-1, 1, 2), h_afim).reshape(-1, 2)
+        (_, _), (eixo_a, eixo_b), ang = cv2.fitEllipse(pts.astype(np.float32))
+        t = np.deg2rad(ang)
+        rot = np.array([[np.cos(t), -np.sin(t)], [np.sin(t), np.cos(t)]])
+        m2 = rot @ np.diag([2 * raio / eixo_a, 2 * raio / eixo_b]) @ rot.T
+
+        centro_h = cv2.perspectiveTransform(
+            np.array([[[centro[0], centro[1]]]], np.float64), h_afim
+        )[0, 0]
+        afim = np.eye(3)
+        afim[:2, :2] = m2
+        afim[:2, 2] = np.array([raio, raio]) - m2 @ centro_h
+        return afim @ h_afim
+
+    def _nitidez_aneis(
         self,
-        imagem_cinza: NDArray[np.uint8],
-        circulo: CirculoDetectado,
-    ) -> tuple[float, float]:
-        altura, largura = imagem_cinza.shape
-        distancias_borda = (
-            circulo.centro_x,
-            circulo.centro_y,
-            largura - circulo.centro_x - 1,
-            altura - circulo.centro_y - 1,
-        )
-        raio_borda = float(max(1, min(distancias_borda)))
+        cinza: NDArray[np.uint8],
+        elipse: Elipse,
+        centro: tuple[float, float],
+    ) -> float:
+        """Anéis impressos concêntricos ⇒ perfil radial médio com vales nítidos."""
+        raio = RAIO_BUSCA_CENTRO_PX
+        h = self._homografia(elipse, centro, raio)
+        retificada = cv2.warpPerspective(cinza, h, (2 * raio, 2 * raio), flags=cv2.INTER_LINEAR, borderValue=255)
+        polar = _desdobrar_polar(retificada, raio, 360).astype(np.float32)
+        perfil = np.median(polar[:, int(0.55 * raio):int(0.97 * raio)], axis=0)
+        return float(np.abs(np.diff(perfil)).sum()) * (RAIO_RETIFICADO_PX / raio)
 
-        # Prefere o raio da grade verde impressa (referência absoluta da escala);
-        # limita à borda da imagem para não amostrar pixels fora (região preta).
-        raio_disco = float(circulo.raio) if circulo.raio > 0 else raio_borda
-        raio_disco = min(raio_disco, raio_borda)
-
-        min_radius = raio_disco * self.fracao_raio_min
-        max_radius = raio_disco * self.fracao_raio_max
-
-        if max_radius - min_radius < 8.0:
-            min_radius = raio_disco * 0.45
-            max_radius = raio_disco * 0.85
-
-        min_radius = max(1.0, min_radius)
-        max_radius = max(min_radius + 1.0, max_radius)
-        return float(min_radius), float(max_radius)
-
-    def desdobrar_disco(
+    def encontrar_centro_real(
         self,
-        imagem_cinza: NDArray[np.uint8],
-        circulo: CirculoDetectado,
-    ) -> NDArray[np.uint8]:
-        centro = (float(circulo.centro_x), float(circulo.centro_y))
-        min_radius, max_radius = self._calcular_raios_anel_velocidade(
-            imagem_cinza,
-            circulo,
+        cinza: NDArray[np.uint8],
+        elipse: Elipse,
+    ) -> tuple[tuple[float, float], float]:
+        """
+        Centro projetado do disco na foto.
+
+        Em foto inclinada o centro da elipse da borda NÃO é o centro do disco;
+        busca local (compass search) pelo ponto que maximiza a nitidez dos anéis.
+        """
+        (ex, ey), (eixo_a, eixo_b), _ = elipse
+        cx, cy = ex, ey
+        melhor = self._nitidez_aneis(cinza, elipse, (cx, cy))
+        passo = (eixo_a + eixo_b) / 4 * 0.08
+        direcoes = ((1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (-1, -1), (1, -1), (-1, 1))
+        while passo > 0.5:
+            proximo = None
+            for dx, dy in direcoes:
+                ponto = (cx + dx * passo, cy + dy * passo)
+                nitidez = self._nitidez_aneis(cinza, elipse, ponto)
+                if nitidez > melhor:
+                    melhor, proximo = nitidez, ponto
+            if proximo is None:
+                passo /= 2
+            else:
+                cx, cy = proximo
+        return (cx, cy), melhor
+
+    # ------------------------------------------------------------- orientação
+
+    def orientar(self, polar: NDArray[np.uint8]) -> tuple[int, float]:
+        """
+        Linha polar correspondente a 00:00.
+
+        O disco tem um arco verde grosso na borda indo das 12h às 24h; a janela
+        de 12 h com mais verde começa às 12h e termina à meia-noite.
+        Devolve (linha da meia-noite, pixels verdes por linha na metade do arco).
+        """
+        r = self.raio_retificado
+        faixa = polar[:, int(FAIXA_ARCO_VERDE[0] * r):int(FAIXA_ARCO_VERDE[1] * r)]
+        verde = _mascara_verde(faixa).sum(1).astype(np.float64)
+        verde = np.clip(verde - np.median(verde), 0, None)  # tira a linha fina que dá a volta toda
+        meio = MINUTOS_NO_DIA // 2
+        soma = np.convolve(np.r_[verde, verde], np.ones(meio), "valid")[:MINUTOS_NO_DIA]
+        inicio_arco = int(np.argmax(soma))
+        return (inicio_arco + meio) % MINUTOS_NO_DIA, float(soma[inicio_arco] / meio)
+
+    def calibrar_escala(self, polar: NDArray[np.uint8]) -> tuple[float, float]:
+        """
+        Ajusta a escala radial pelos anéis tracejados de velocidade.
+
+        Devolve (escala, nota). Nota = resposta média de escuridão nos raios
+        esperados dos anéis / mediana da faixa; ~1 significa que os anéis não
+        estão onde deveriam (disco mal detectado ou foto muito distorcida).
+        """
+        r = self.raio_retificado
+        cinza = cv2.cvtColor(polar, cv2.COLOR_BGR2GRAY).astype(np.float32)
+        perfil = np.clip(cv2.GaussianBlur(cinza, (0, 0), 8) - cinza, 0, None).mean(0)
+        base = max(float(np.median(perfil[int(0.55 * r):int(0.99 * r)])), 1e-6)
+        aneis = np.array(ANEIS_ESCALA_VELOCIDADE)
+
+        melhor_resposta, melhor_escala = -1.0, 1.0
+        for escala in np.arange(ESCALA_RADIAL_MIN_MAX[0], ESCALA_RADIAL_MIN_MAX[1] + 1e-9, 0.0025):
+            raios = np.round(aneis * escala * r).astype(int)
+            resposta = float(np.mean([perfil[x - 2:x + 3].max() for x in raios]))
+            if resposta > melhor_resposta:
+                melhor_resposta, melhor_escala = resposta, float(escala)
+        return melhor_escala, melhor_resposta / base
+
+    # --------------------------------------------------------------- pipeline
+
+    def processar(self, dados_imagem: bytes) -> ResultadoProcessamento:
+        imagem_bgr = self._decodificar_bgr(dados_imagem)
+        cinza = cv2.cvtColor(imagem_bgr, cv2.COLOR_BGR2GRAY)
+        avisos: list[str] = []
+
+        # 1) Borda do disco (elipse na foto)
+        elipse = self.detectar_borda_disco(imagem_bgr)
+
+        # 2) Centro real + homografia (corrige a perspectiva da foto)
+        centro, _ = self.encontrar_centro_real(cinza, elipse)
+        r = self.raio_retificado
+        h = self._homografia(elipse, centro, r)
+        retificada = cv2.warpPerspective(imagem_bgr, h, (2 * r, 2 * r), flags=cv2.INTER_CUBIC, borderValue=(0, 0, 0))
+
+        # 3) Desdobramento com 1 linha por minuto, orientado para 00:00 na linha 0
+        polar = _desdobrar_polar(retificada, r, MINUTOS_NO_DIA)
+
+        # 4) Validação + autocalibração pelos anéis de velocidade impressos
+        escala, nota = self.calibrar_escala(polar)
+        if nota < NOTA_ANEIS_MINIMA:
+            raise FuroNaoEncontradoError(
+                "O disco não foi reconhecido com segurança: a escala de velocidade "
+                "impressa não ficou alinhada. Fotografe de cima, com o disco inteiro "
+                "sobre um fundo escuro (não use mesa branca ou madeira clara) e sem reflexos."
+            )
+        if nota < NOTA_ANEIS_CONFIAVEL:
+            avisos.append(
+                "Leitura com baixa confiança: a escala impressa ficou pouco nítida. "
+                "Confira a imagem desdobrada; se os anéis estiverem ondulados, tire outra foto."
+            )
+
+        meia_noite, verde_arco = self.orientar(polar)
+        if verde_arco < VERDE_MINIMO_ARCO:
+            avisos.append(
+                "Orientação do disco incerta: o arco verde 12h–24h da borda não ficou "
+                "nítido. Os horários podem estar deslocados."
+            )
+        polar = np.roll(polar, -meia_noite, axis=0)
+
+        # 5) Imagem de debug: x = minuto do dia, y = raio (borda no topo)
+        c0, c1 = int(FAIXA_IMAGEM_DEBUG[0] * r), int(FAIXA_IMAGEM_DEBUG[1] * r)
+        desdobrada = cv2.rotate(polar[:, c0:c1], cv2.ROTATE_90_COUNTERCLOCKWISE)
+
+        altura, largura = desdobrada.shape[:2]
+        (_, _), (eixo_a, eixo_b), _ = elipse
+        return ResultadoProcessamento(
+            imagem_cinza=cv2.cvtColor(retificada, cv2.COLOR_BGR2GRAY),
+            circulo=CirculoDetectado(
+                centro_x=int(round(centro[0])),
+                centro_y=int(round(centro[1])),
+                raio=int(round((eixo_a + eixo_b) / 4)),
+            ),
+            imagem_desdobrada=desdobrada,
+            largura_px=int(largura),
+            altura_px=int(altura),
+            polar_orientado=polar,
+            escala_radial=round(escala, 4),
+            nota_aneis=round(nota, 2),
+            avisos=avisos,
         )
 
-        polar = cv2.warpPolar(
-            src=imagem_cinza,
-            dsize=(self.altura_desdobramento, self.largura_desdobramento),
-            center=centro,
-            maxRadius=max_radius,
-            flags=cv2.WARP_POLAR_LINEAR + cv2.INTER_LINEAR,
-        )
+    # ---------------------------------------------------------- curva de sinal
 
-        colunas = polar.shape[1]
-        col_inicio = int(round((min_radius / max_radius) * (colunas - 1)))
-        col_inicio = max(0, min(col_inicio, colunas - 2))
-        polar_anel = polar[:, col_inicio:]
+    @staticmethod
+    def _minutos_para_hora(minutos_totais: int) -> str:
+        minutos_norm = minutos_totais % MINUTOS_NO_DIA
+        return f"{minutos_norm // 60:02d}:{minutos_norm % 60:02d}"
 
-        polar_anel = cv2.resize(
-            polar_anel,
-            (self.altura_desdobramento, self.largura_desdobramento),
-            interpolation=cv2.INTER_LINEAR,
-        )
+    @staticmethod
+    def _fechar_lacunas(em_movimento: NDArray[np.bool_], lacuna_max: int) -> NDArray[np.bool_]:
+        """Preenche buracos curtos na barra de atividade (falhas de tinta/reflexo)."""
+        resultado = em_movimento.copy()
+        indices = np.nonzero(em_movimento)[0]
+        for a, b in zip(indices[:-1], indices[1:]):
+            if 1 < b - a <= lacuna_max:
+                resultado[a:b] = True
+        return resultado
 
-        retangular = cv2.rotate(polar_anel, cv2.ROTATE_90_COUNTERCLOCKWISE)
-        retangular = cv2.flip(retangular, 0)
+    def detectar_movimento(
+        self,
+        polar_orientado: NDArray[np.uint8],
+        escala_radial: float = 1.0,
+    ) -> NDArray[np.bool_]:
+        """Minutos em que a barra de atividade (~0,51 R) está marcada."""
+        r = self.raio_retificado
+        v = cv2.cvtColor(polar_orientado, cv2.COLOR_BGR2HSV)[..., 2].astype(np.float32)
+        escuridao = cv2.GaussianBlur(v, (0, 0), 12) - v
+        a0, a1 = int(FAIXA_ATIVIDADE[0] * escala_radial * r), int(FAIXA_ATIVIDADE[1] * escala_radial * r)
+        marcado = (escuridao[:, a0:a1] > CONTRASTE_TINTA_ATIVIDADE).mean(1) > FRACAO_ATIVIDADE_MOVIMENTO
+        return self._fechar_lacunas(marcado, LACUNA_MAXIMA_ATIVIDADE_MIN)
 
-        return retangular
+    def extrair_curva_velocidade(
+        self,
+        resultado: ResultadoProcessamento,
+        janela_media_movel: int = 3,
+    ) -> list[PontoVelocidade]:
+        """
+        Curva de 1440 pontos (1 por minuto). Velocidade = mediana radial do traço
+        do estilete, lida só nos minutos com movimento; minutos parados = 0.
+        """
+        polar = resultado.polar_orientado
+        r = self.raio_retificado
+        if polar is None or polar.ndim != 3 or polar.shape[0] != MINUTOS_NO_DIA:
+            raise ImagemInvalidaError("Disco desdobrado inválido para extrair a curva.")
+
+        k = resultado.escala_radial
+        em_movimento = self.detectar_movimento(polar, k)
+
+        hsv = cv2.cvtColor(polar, cv2.COLOR_BGR2HSV)
+        v = hsv[..., 2].astype(np.float32)
+        escuridao = cv2.GaussianBlur(v, (0, 0), 12) - v
+        a0, a1 = int(FAIXA_TRACO_VELOCIDADE[0] * k * r), int(min(FAIXA_TRACO_VELOCIDADE[1] * k, 0.99) * r)
+        tinta = escuridao[:, a0:a1] > CONTRASTE_TINTA_VELOCIDADE
+        tinta &= ~_mascara_verde(polar[:, a0:a1])
+
+        # Raios com impressão fixa (linhas tracejadas, números): escuros mesmo parado
+        if (~em_movimento).sum() > 60:
+            impresso = tinta[~em_movimento].mean(0) > FRACAO_IMPRESSO_FIXO
+            tinta[:, impresso] = False
+
+        velocidades = np.zeros(MINUTOS_NO_DIA, dtype=np.float64)
+        for minuto in np.nonzero(em_movimento)[0]:
+            idx = np.nonzero(tinta[minuto])[0]
+            if idx.size >= 3:
+                fracao = (np.median(idx) + a0) / (r * k)
+                velocidades[minuto] = (fracao - FRACAO_RAIO_0_KMH) * KMH_POR_FRACAO_RAIO
+
+        if janela_media_movel > 1:
+            suave = np.convolve(velocidades, np.ones(janela_media_movel) / janela_media_movel, "same")
+            velocidades = np.where(em_movimento, suave, 0.0)
+
+        velocidades = np.clip(velocidades, 0.0, float(self.velocidade_maxima_kmh))
+        return [
+            {
+                "hora": self._minutos_para_hora(minuto),
+                "velocidade_kmh": 0.0 if vel < 0.5 else round(float(vel), 1),
+            }
+            for minuto, vel in enumerate(velocidades)
+        ]
+
+    # -------------------------------------------------------------------- debug
 
     def garantir_pasta_temp(self) -> Path:
         PASTA_TEMP.mkdir(parents=True, exist_ok=True)
@@ -591,201 +630,3 @@ class LeitorDisco:
             raise ErroProcessamentoDisco(f"Falha ao salvar imagem em: {caminho}")
 
         return caminho
-
-    @staticmethod
-    def _minutos_para_hora(minutos_totais: int) -> str:
-        minutos_norm = minutos_totais % MINUTOS_NO_DIA
-        horas = minutos_norm // 60
-        minutos = minutos_norm % 60
-        return f"{horas:02d}:{minutos:02d}"
-
-    def _preparar_imagem_para_traco(
-        self,
-        imagem_desdobrada: NDArray[np.uint8],
-    ) -> NDArray[np.uint8]:
-        # 1) CLAHE novamente no recorte: reforça o traço em regiões que ainda
-        #    ficaram sob sombra/reflexo após o desdobramento.
-        equalizada = self._equalizar_iluminacao(imagem_desdobrada)
-        suavizada = cv2.GaussianBlur(equalizada, (9, 9), 0)
-
-        # 2) Binarização Otsu: separa tinta (traço/grade) do fundo do papel.
-        _, mascara_tinta = cv2.threshold(
-            suavizada,
-            0,
-            255,
-            cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU,
-        )
-
-        # 3) MORPH_CLOSE: une pedaços do traço que ficaram partidos (falhas de
-        #    tinta ou brilho), deixando a linha do estilete contínua.
-        nucleo_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-        mascara_limpa = cv2.morphologyEx(
-            mascara_tinta,
-            cv2.MORPH_CLOSE,
-            nucleo_close,
-            iterations=1,
-        )
-
-        # 4) MORPH_OPEN: apaga respingos/ruídos pequenos gerados por sombras e
-        #    sujeira, sem engordar o traço principal.
-        nucleo_open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-        mascara_limpa = cv2.morphologyEx(
-            mascara_limpa,
-            cv2.MORPH_OPEN,
-            nucleo_open,
-            iterations=1,
-        )
-
-        preparada = imagem_desdobrada.copy()
-        preparada[mascara_limpa == 0] = 255
-        return preparada
-
-    def _coluna_tem_traco_valido(
-        self,
-        coluna: NDArray[np.uint8],
-        y_candidato: int,
-    ) -> bool:
-        if coluna.size == 0:
-            return False
-
-        y = max(0, min(int(y_candidato), int(coluna.shape[0]) - 1))
-        intensidade_min = int(coluna[y])
-        mediana = float(np.median(coluna))
-        contraste = mediana - float(intensidade_min)
-
-        if contraste < float(CONTRASTE_MINIMO_TRACO):
-            return False
-
-        limiar_local = int(max(0, mediana - CONTRASTE_MINIMO_TRACO * 0.65))
-        y0 = max(0, y - 4)
-        y1 = min(int(coluna.shape[0]), y + 5)
-        vizinhanca = coluna[y0:y1]
-        pixels_escuros = int(np.count_nonzero(vizinhanca <= limiar_local))
-        return pixels_escuros >= PIXEIS_ESCUROS_MINIMOS
-
-    def _aplicar_media_movel(
-        self,
-        velocidades: list[float],
-        janela: int = 5,
-    ) -> list[float]:
-        if janela < 1:
-            raise ValueError("A janela da média móvel deve ser >= 1.")
-        if not velocidades:
-            return []
-        if janela == 1 or len(velocidades) < janela:
-            return [float(v) for v in velocidades]
-
-        arr = np.asarray(velocidades, dtype=np.float64)
-        kernel = np.ones(janela, dtype=np.float64) / float(janela)
-        suavizada = np.convolve(arr, kernel, mode="same")
-        return [float(v) for v in suavizada]
-
-    def extrair_curva_velocidade(
-        self,
-        imagem_desdobrada: NDArray[np.uint8],
-        janela_media_movel: int = 5,
-    ) -> list[PontoVelocidade]:
-        if imagem_desdobrada is None or imagem_desdobrada.ndim != 2:
-            raise ImagemInvalidaError("A imagem desdobrada deve estar em escala de cinza.")
-
-        altura, largura = imagem_desdobrada.shape
-        if altura < 2 or largura < 1:
-            raise ImagemInvalidaError("Dimensões insuficientes para extrair a curva.")
-
-        try:
-            preparada = self._preparar_imagem_para_traco(imagem_desdobrada)
-        except Exception as erro:
-            raise ErroProcessamentoDisco("Falha no pré-processamento da curva.") from erro
-
-        indices_y = np.argmin(preparada, axis=0).astype(np.int32)
-        intensidades_min = preparada.min(axis=0)
-
-        denominador_x = max(largura - 1, 1)
-        denominador_y = max(altura - 1, 1)
-        velocidades_brutas: list[float] = []
-        horas: list[str] = []
-
-        for x in range(largura):
-            minutos = int(round((x / denominador_x) * (MINUTOS_NO_DIA - 1)))
-            horas.append(self._minutos_para_hora(minutos))
-
-            try:
-                y = int(indices_y[x])
-                intensidade = int(intensidades_min[x])
-            except IndexError:
-                velocidades_brutas.append(0.0)
-                continue
-
-            y = max(0, min(y, altura - 1))
-
-            if intensidade >= 250:
-                velocidades_brutas.append(0.0)
-                continue
-
-            coluna = preparada[:, x]
-            if not self._coluna_tem_traco_valido(coluna, y):
-                velocidades_brutas.append(0.0)
-                continue
-
-            fracao_altura = 1.0 - (y / denominador_y)
-            velocidade = fracao_altura * float(self.velocidade_maxima_kmh)
-            velocidades_brutas.append(float(max(0.0, min(velocidade, float(self.velocidade_maxima_kmh)))))
-
-        velocidades_suaves = self._aplicar_media_movel(
-            velocidades_brutas,
-            janela=max(1, int(janela_media_movel)),
-        )
-
-        for i in range(1, len(velocidades_suaves) - 1):
-            if velocidades_suaves[i] > 8.0 and velocidades_suaves[i - 1] < 1.0 and velocidades_suaves[i + 1] < 1.0:
-                velocidades_suaves[i] = 0.0
-
-        n = min(len(horas), len(velocidades_suaves))
-        curva: list[PontoVelocidade] = []
-        for i in range(n):
-            velocidade = velocidades_suaves[i]
-            velocidade_final = 0.0 if velocidade < 0.5 else round(float(velocidade), 1)
-            curva.append(
-                {
-                    "hora": horas[i],
-                    "velocidade_kmh": float(max(0.0, min(velocidade_final, float(self.velocidade_maxima_kmh)))),
-                }
-            )
-
-        if not curva:
-            raise ErroProcessamentoDisco("Não foi possível extrair pontos de velocidade.")
-
-        return curva
-
-    def processar(self, dados_imagem: bytes) -> ResultadoProcessamento:
-        # 1) Decodifica a imagem colorida (precisamos da cor para a máscara verde)
-        imagem_bgr = self._decodificar_bgr(dados_imagem)
-        imagem_cinza = cv2.cvtColor(imagem_bgr, cv2.COLOR_BGR2GRAY)
-
-        # 2) CLAHE: normaliza iluminação/sombras/reflexos antes de tudo
-        imagem_eq = self._equalizar_iluminacao(imagem_cinza)
-
-        # 3) Máscara verde da grade impressa (reutilizada por centro e perspectiva)
-        mascara_verde = self._mascara_verde(imagem_bgr)
-
-        # 4) Centro/raio via grade verde (fallback: HoughCircles no cinza equalizado)
-        circulo = self.detectar_centro(imagem_bgr, imagem_eq, mascara_verde)
-
-        # 5) Correção de perspectiva (elipse → círculo) antes do desdobramento
-        imagem_proc, circulo = self.corrigir_perspectiva(
-            imagem_eq,
-            circulo,
-            mascara_verde,
-        )
-
-        # 6) Desdobramento polar → cartesiano do anel de velocidade
-        imagem_desdobrada = self.desdobrar_disco(imagem_proc, circulo)
-
-        altura, largura = imagem_desdobrada.shape[:2]
-        return ResultadoProcessamento(
-            imagem_cinza=imagem_proc,
-            circulo=circulo,
-            imagem_desdobrada=imagem_desdobrada,
-            largura_px=int(largura),
-            altura_px=int(altura),
-        )
