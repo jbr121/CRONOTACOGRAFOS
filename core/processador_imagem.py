@@ -64,10 +64,6 @@ FRACAO_ATIVIDADE_MOVIMENTO: Final[float] = 0.15
 LACUNA_MAXIMA_ATIVIDADE_MIN: Final[int] = 4
 # Raio considerado "impressão fixa" se estiver escuro em > 8% dos minutos parados
 FRACAO_IMPRESSO_FIXO: Final[float] = 0.08
-# Fração usada para remover elementos impressos que aparecem repetidamente no
-# mesmo raio (anéis, números, sujeira circular) quando a barra de atividade
-# oferece contexto de movimento/parada.
-FRACAO_IMPRESSO_RECORRENTE: Final[float] = 0.18
 # Parâmetros do rastreador temporal da curva de velocidade.
 CONTRASTE_MINIMO_CURVA: Final[float] = 18.0
 SALTO_MAXIMO_CURVA_KMH: Final[float] = 28.0
@@ -441,7 +437,9 @@ class LeitorDisco:
         r = self.raio_retificado
         faixa = polar[:, int(FAIXA_ARCO_VERDE[0] * r):int(FAIXA_ARCO_VERDE[1] * r)]
         verde = _mascara_verde(faixa).sum(1).astype(np.float64)
-        verde = np.clip(verde - np.median(verde), 0, None)  # tira a linha fina que dá a volta toda
+        # Percentil baixo tira a linha fina que dá a volta toda e ainda preserva
+        # o arco grosso quando a perspectiva o deixa um pouco maior que 12 h.
+        verde = np.clip(verde - np.percentile(verde, 25), 0, None)
         meio = MINUTOS_NO_DIA // 2
         soma = np.convolve(np.r_[verde, verde], np.ones(meio), "valid")[:MINUTOS_NO_DIA]
         inicio_arco = int(np.argmax(soma))
@@ -571,9 +569,9 @@ class LeitorDisco:
         Remove raios escuros recorrentes, típicos da escala impressa.
 
         A leitura antiga usava a barra de atividade como filtro rígido. Quando a
-        barra fica fraca na foto, a viagem inteira pode virar zero. Aqui a barra
-        só ajuda a identificar impressão fixa quando foi detectada com contexto
-        suficiente; se ela falhar, o rastreador continua usando a curva.
+        barra fica fraca na foto, a viagem inteira pode virar zero. Aqui ela só
+        remove raios que continuam escuros com o veículo parado (escala impressa).
+        Um traço longo e estável, escuro só durante o movimento, permanece.
         """
         limiar = score_traco > CONTRASTE_MINIMO_CURVA
         impresso = np.zeros(score_traco.shape[1], dtype=np.bool_)
@@ -583,8 +581,6 @@ class LeitorDisco:
         if atividade_confiavel and (~em_movimento).sum() > 60:
             impresso |= limiar[~em_movimento].mean(0) > FRACAO_IMPRESSO_FIXO
 
-        if atividade_confiavel:
-            impresso |= limiar.mean(0) > FRACAO_IMPRESSO_RECORRENTE
         limpo = score_traco.copy()
         limpo[:, impresso] = 0.0
         return limpo
@@ -681,8 +677,9 @@ class LeitorDisco:
         janela_media_movel: int = 3,
     ) -> list[PontoVelocidade]:
         """
-        Curva de 1440 pontos (1 por minuto). Velocidade = mediana radial do traço
-        do estilete, lida só nos minutos com movimento; minutos parados = 0.
+        Curva de 1440 pontos (1 por minuto). O traço do estilete é rastreado
+        como uma curva contínua. Se a barra de atividade estiver visível,
+        os minutos parados ficam em zero.
         """
         polar = resultado.polar_orientado
         r = self.raio_retificado
@@ -708,10 +705,10 @@ class LeitorDisco:
             LACUNA_MAXIMA_CURVA_MIN,
         )
 
-        # A barra de atividade ajuda a limpar ruído parado quando foi detectada,
-        # mas não zera a leitura inteira se ela ficou fraca ou invisível na foto.
+        # Com a barra de atividade visível, minuto parado fica em zero.
+        # Se a barra não foi detectada, a curva do estilete continua valendo.
         if em_movimento.sum() > MINUTOS_NO_DIA * 0.03:
-            velocidades = np.where(em_movimento | mascara_valida, velocidades, 0.0)
+            velocidades = np.where(em_movimento, velocidades, 0.0)
 
         if janela_media_movel > 1:
             suave = np.convolve(velocidades, np.ones(janela_media_movel) / janela_media_movel, "same")
