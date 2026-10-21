@@ -64,6 +64,10 @@ FRACAO_ATIVIDADE_MOVIMENTO: Final[float] = 0.15
 LACUNA_MAXIMA_ATIVIDADE_MIN: Final[int] = 4
 # Raio considerado "impressão fixa" se estiver escuro em > 8% dos minutos parados
 FRACAO_IMPRESSO_FIXO: Final[float] = 0.08
+# Parâmetros do rastreador temporal da curva de velocidade.
+CONTRASTE_MINIMO_CURVA: Final[float] = 18.0
+SALTO_MAXIMO_CURVA_KMH: Final[float] = 28.0
+LACUNA_MAXIMA_CURVA_MIN: Final[int] = 8
 
 # Faixa HSV do verde impresso do disco
 VERDE_HSV_BAIXO: Final[tuple[int, int, int]] = (30, 60, 20)
@@ -433,7 +437,9 @@ class LeitorDisco:
         r = self.raio_retificado
         faixa = polar[:, int(FAIXA_ARCO_VERDE[0] * r):int(FAIXA_ARCO_VERDE[1] * r)]
         verde = _mascara_verde(faixa).sum(1).astype(np.float64)
-        verde = np.clip(verde - np.median(verde), 0, None)  # tira a linha fina que dá a volta toda
+        # Percentil baixo tira a linha fina que dá a volta toda e ainda preserva
+        # o arco grosso quando a perspectiva o deixa um pouco maior que 12 h.
+        verde = np.clip(verde - np.percentile(verde, 25), 0, None)
         meio = MINUTOS_NO_DIA // 2
         soma = np.convolve(np.r_[verde, verde], np.ones(meio), "valid")[:MINUTOS_NO_DIA]
         inicio_arco = int(np.argmax(soma))
@@ -554,14 +560,126 @@ class LeitorDisco:
         marcado = (escuridao[:, a0:a1] > CONTRASTE_TINTA_ATIVIDADE).mean(1) > FRACAO_ATIVIDADE_MOVIMENTO
         return self._fechar_lacunas(marcado, LACUNA_MAXIMA_ATIVIDADE_MIN)
 
+    def _remover_impresso_fixo(
+        self,
+        score_traco: NDArray[np.float32],
+        em_movimento: NDArray[np.bool_],
+    ) -> NDArray[np.float32]:
+        """
+        Remove raios escuros recorrentes, típicos da escala impressa.
+
+        A leitura antiga usava a barra de atividade como filtro rígido. Quando a
+        barra fica fraca na foto, a viagem inteira pode virar zero. Aqui ela só
+        remove raios que continuam escuros com o veículo parado (escala impressa).
+        Um traço longo e estável, escuro só durante o movimento, permanece.
+        """
+        limiar = score_traco > CONTRASTE_MINIMO_CURVA
+        impresso = np.zeros(score_traco.shape[1], dtype=np.bool_)
+
+        atividade_confiavel = em_movimento.sum() > MINUTOS_NO_DIA * 0.03
+
+        if atividade_confiavel and (~em_movimento).sum() > 60:
+            impresso |= limiar[~em_movimento].mean(0) > FRACAO_IMPRESSO_FIXO
+
+        limpo = score_traco.copy()
+        limpo[:, impresso] = 0.0
+        return limpo
+
+    def _rastrear_curva_continua(
+        self,
+        score_traco: NDArray[np.float32],
+        a0: int,
+        escala_radial: float,
+    ) -> NDArray[np.float64]:
+        """
+        Encontra a sequência radial mais provável para o traço do estilete.
+
+        Em vez de calcular a mediana dos pixels escuros de cada minuto, o método
+        escolhe um ponto por minuto maximizando contraste e suavidade temporal.
+        Isso evita saltos causados por números, anéis tracejados e sujeira.
+        """
+        minutos, largura = score_traco.shape
+        r = self.raio_retificado
+        if minutos != MINUTOS_NO_DIA or largura <= 0:
+            raise ImagemInvalidaError("Faixa de velocidade inválida para extrair a curva.")
+
+        raios = (np.arange(largura, dtype=np.float64) + float(a0)) / (r * escala_radial)
+        kmh_por_coluna = (raios - FRACAO_RAIO_0_KMH) * KMH_POR_FRACAO_RAIO
+        passo_coluna_kmh = max(abs(KMH_POR_FRACAO_RAIO / (r * escala_radial)), 1e-6)
+        salto_max = max(2, int(round(SALTO_MAXIMO_CURVA_KMH / passo_coluna_kmh)))
+
+        # Zera leituras fora da escala útil antes do rastreamento.
+        valido = (kmh_por_coluna >= -3.0) & (kmh_por_coluna <= self.velocidade_maxima_kmh + 3.0)
+        score = score_traco.copy()
+        score[:, ~valido] = 0.0
+
+        custo = np.full((minutos, largura), np.inf, dtype=np.float32)
+        anterior = np.full((minutos, largura), -1, dtype=np.int16)
+        primeiro = np.clip(score[0], 0.0, None)
+        custo[0] = -primeiro
+
+        penalidade_lacuna = CONTRASTE_MINIMO_CURVA * 0.55
+        penalidade_salto = CONTRASTE_MINIMO_CURVA / max(float(salto_max), 1.0)
+
+        for minuto in range(1, minutos):
+            for coluna in range(largura):
+                inicio = max(0, coluna - salto_max)
+                fim = min(largura, coluna + salto_max + 1)
+                candidatos = custo[minuto - 1, inicio:fim]
+                if candidatos.size == 0:
+                    continue
+
+                offsets = np.arange(inicio, fim, dtype=np.float32) - float(coluna)
+                penalidades = np.abs(offsets) * penalidade_salto
+                melhor_local = int(np.argmin(candidatos + penalidades))
+                anterior[minuto, coluna] = np.int16(inicio + melhor_local)
+
+                contraste = float(score[minuto, coluna])
+                custo[minuto, coluna] = (
+                    candidatos[melhor_local]
+                    + penalidades[melhor_local]
+                    - contraste
+                    + (penalidade_lacuna if contraste < CONTRASTE_MINIMO_CURVA else 0.0)
+                )
+
+        caminho = np.zeros(minutos, dtype=np.int32)
+        caminho[-1] = int(np.argmin(custo[-1]))
+        for minuto in range(minutos - 1, 0, -1):
+            prev = int(anterior[minuto, caminho[minuto]])
+            caminho[minuto - 1] = caminho[minuto] if prev < 0 else prev
+
+        velocidades = np.zeros(minutos, dtype=np.float64)
+        confiavel = score[np.arange(minutos), caminho] >= CONTRASTE_MINIMO_CURVA
+        velocidades[confiavel] = kmh_por_coluna[caminho[confiavel]]
+        return velocidades
+
+    @staticmethod
+    def _interpolar_lacunas_curvas(
+        velocidades: NDArray[np.float64],
+        mascara_valida: NDArray[np.bool_],
+        lacuna_max: int,
+    ) -> NDArray[np.float64]:
+        """Interpola pequenas falhas de contraste entre dois trechos lidos."""
+        resultado = velocidades.copy()
+        validos = np.nonzero(mascara_valida)[0]
+        for a, b in zip(validos[:-1], validos[1:]):
+            if 1 < b - a <= lacuna_max:
+                resultado[a:b + 1] = np.interp(
+                    np.arange(a, b + 1),
+                    np.array([a, b]),
+                    np.array([resultado[a], resultado[b]]),
+                )
+        return resultado
+
     def extrair_curva_velocidade(
         self,
         resultado: ResultadoProcessamento,
         janela_media_movel: int = 3,
     ) -> list[PontoVelocidade]:
         """
-        Curva de 1440 pontos (1 por minuto). Velocidade = mediana radial do traço
-        do estilete, lida só nos minutos com movimento; minutos parados = 0.
+        Curva de 1440 pontos (1 por minuto). O traço do estilete é rastreado
+        como uma curva contínua. Se a barra de atividade estiver visível,
+        os minutos parados ficam em zero.
         """
         polar = resultado.polar_orientado
         r = self.raio_retificado
@@ -575,24 +693,26 @@ class LeitorDisco:
         v = hsv[..., 2].astype(np.float32)
         escuridao = cv2.GaussianBlur(v, (0, 0), 12) - v
         a0, a1 = int(FAIXA_TRACO_VELOCIDADE[0] * k * r), int(min(FAIXA_TRACO_VELOCIDADE[1] * k, 0.99) * r)
-        tinta = escuridao[:, a0:a1] > CONTRASTE_TINTA_VELOCIDADE
-        tinta &= ~_mascara_verde(polar[:, a0:a1])
+        score = np.clip(escuridao[:, a0:a1] - (CONTRASTE_TINTA_VELOCIDADE * 0.45), 0.0, None)
+        score[_mascara_verde(polar[:, a0:a1])] = 0.0
+        score = self._remover_impresso_fixo(score.astype(np.float32), em_movimento)
 
-        # Raios com impressão fixa (linhas tracejadas, números): escuros mesmo parado
-        if (~em_movimento).sum() > 60:
-            impresso = tinta[~em_movimento].mean(0) > FRACAO_IMPRESSO_FIXO
-            tinta[:, impresso] = False
+        velocidades = self._rastrear_curva_continua(score, a0, k)
+        mascara_valida = score.max(1) >= CONTRASTE_MINIMO_CURVA
+        velocidades = self._interpolar_lacunas_curvas(
+            velocidades,
+            mascara_valida,
+            LACUNA_MAXIMA_CURVA_MIN,
+        )
 
-        velocidades = np.zeros(MINUTOS_NO_DIA, dtype=np.float64)
-        for minuto in np.nonzero(em_movimento)[0]:
-            idx = np.nonzero(tinta[minuto])[0]
-            if idx.size >= 3:
-                fracao = (np.median(idx) + a0) / (r * k)
-                velocidades[minuto] = (fracao - FRACAO_RAIO_0_KMH) * KMH_POR_FRACAO_RAIO
+        # Com a barra de atividade visível, minuto parado fica em zero.
+        # Se a barra não foi detectada, a curva do estilete continua valendo.
+        if em_movimento.sum() > MINUTOS_NO_DIA * 0.03:
+            velocidades = np.where(em_movimento, velocidades, 0.0)
 
         if janela_media_movel > 1:
             suave = np.convolve(velocidades, np.ones(janela_media_movel) / janela_media_movel, "same")
-            velocidades = np.where(em_movimento, suave, 0.0)
+            velocidades = np.where(velocidades > 0.0, suave, 0.0)
 
         velocidades = np.clip(velocidades, 0.0, float(self.velocidade_maxima_kmh))
         return [
