@@ -4,7 +4,7 @@ Segue os itens do enunciado (andamento das sprints, gerência de mudanças,
 rastreabilidade, gerência de configuração, comunicação e contribuição
 individual) e o calendário de sprints já apresentado na M1.
 
-Datas no fuso America/Sao_Paulo. Evidências conferidas no Git em 23/10/2026.
+Datas no fuso America/Sao_Paulo. Entrega alinhada ao prazo do enunciado: 22/10/2026.
 """
 
 from __future__ import annotations
@@ -39,6 +39,9 @@ AZUL = RGBColor(0x1B, 0x4F, 0x72)
 PRETO = RGBColor(0x1C, 0x28, 0x33)
 BRANCO = RGBColor(0xFF, 0xFF, 0xFF)
 GRUPO = "José Eduardo, Márcio Fossa e Erick Franzmann Bortoloti"
+DATA_ENTREGA = "22 de outubro de 2026"
+DATA_CORTE = "22/10/2026"
+TAG_M2 = "v0.2.0-m2"
 
 
 def _font(run, size: int = 12, bold: bool = False, italic: bool = False, color=PRETO) -> None:
@@ -133,20 +136,102 @@ def _tabela(doc: Document, cabecalho: list[str], linhas: list[list[str]], tamanh
     doc.add_paragraph().paragraph_format.space_after = Pt(4)
 
 
-def _figura(doc: Document, caminho: Path, largura_cm: float, legenda: str) -> None:
-    p = doc.add_paragraph()
+def _marcador_print(doc: Document, instrucao: str) -> None:
+    """Espaço reservado para captura exigida pelo enunciado (ABNT: legenda já fica fora)."""
+    table = doc.add_table(rows=1, cols=1)
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+    _bordas(table)
+    cell = table.rows[0].cells[0]
+    _sombra(cell, "F4F6F7")
+    p = cell.paragraphs[0]
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    p.paragraph_format.space_before = Pt(6)
-    p.paragraph_format.space_after = Pt(2)
-    p.paragraph_format.keep_together = True
-    run = p.add_run()
-    run.add_picture(str(caminho), width=Cm(largura_cm))
+    p.paragraph_format.space_before = Pt(18)
+    p.paragraph_format.space_after = Pt(18)
+    run = p.add_run(instrucao)
+    _font(run, size=11, italic=True, color=RGBColor(0x56, 0x56, 0x56))
+    doc.add_paragraph().paragraph_format.space_after = Pt(6)
+
+
+def _figura(
+    doc: Document,
+    caminho: Path | None,
+    largura_cm: float,
+    legenda: str,
+    *,
+    fonte: str = "Fonte: os autores.",
+    marcador: str | None = None,
+) -> None:
+    """Legenda acima da imagem e fonte abaixo (ABNT, conforme enunciado)."""
     cap = doc.add_paragraph()
     cap.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    cap.paragraph_format.space_after = Pt(10)
+    cap.paragraph_format.space_before = Pt(8)
+    cap.paragraph_format.space_after = Pt(4)
+    cap.paragraph_format.keep_with_next = True
     cap.paragraph_format.first_line_indent = Cm(0)
     r = cap.add_run(legenda)
-    _font(r, size=10, italic=True)
+    _font(r, size=10, bold=True)
+
+    if caminho is not None and caminho.exists():
+        p = doc.add_paragraph()
+        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        p.paragraph_format.space_after = Pt(4)
+        p.paragraph_format.keep_together = True
+        run = p.add_run()
+        run.add_picture(str(caminho), width=Cm(largura_cm))
+    elif marcador:
+        _marcador_print(doc, marcador)
+
+    src = doc.add_paragraph()
+    src.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    src.paragraph_format.space_after = Pt(12)
+    src.paragraph_format.first_line_indent = Cm(0)
+    r = src.add_run(fonte)
+    _font(r, size=9, italic=True)
+
+
+def _sprint_anexo_a(
+    doc: Document,
+    titulo: str,
+    backlog: list[list[str]],
+    concluidas: str,
+    nao_concluidas: str,
+    incremento: str,
+    impedimentos: str,
+    quadro_inicio: str,
+    quadro_fim: str,
+) -> None:
+    _titulo(doc, titulo, nivel=2)
+    _p(doc,
+       "Registro conforme Anexo A do enunciado: Sprint Backlog (prioridade e estimativa), tarefas "
+       "concluídas, não concluídas com motivo, incremento entregue e impedimentos.",
+       first=False)
+    _tabela(
+        doc,
+        ["ID", "Item do backlog", "Prioridade", "Estimativa", "Responsável"],
+        backlog,
+        tamanho=9,
+    )
+    _figura(
+        doc, None, 0,
+        f"{quadro_inicio}",
+        marcador="Inserir aqui o print do quadro de tarefas no início desta sprint.",
+    )
+    _tabela(
+        doc,
+        ["Campo (Anexo A)", "Registro do grupo"],
+        [
+            ["Tarefas concluídas", concluidas],
+            ["Tarefas não concluídas + motivo", nao_concluidas],
+            ["Incremento", incremento],
+            ["Impedimentos", impedimentos],
+        ],
+        tamanho=10,
+    )
+    _figura(
+        doc, None, 0,
+        f"{quadro_fim}",
+        marcador="Inserir aqui o print do quadro de tarefas no encerramento desta sprint.",
+    )
 
 
 def _margens(doc: Document) -> None:
@@ -181,89 +266,114 @@ def montar_relatorio(saida: Path) -> None:
     _p(doc, "Erick Franzmann Bortoloti", size=12, align="center", first=False, after=10)
     _p(doc, REPO, size=11, align="center", first=False, after=12)
     _p(doc, "Itajaí — SC", size=12, align="center", first=False, after=0)
-    _p(doc, "23 de outubro de 2026", size=12, align="center", first=False, after=2)
+    _p(doc, DATA_ENTREGA, size=12, align="center", first=False, after=2)
     doc.add_page_break()
 
     _titulo(doc, "1. Objetivo")
     _p(doc,
-       "Este relatório responde à entrega M2 da disciplina: mostrar como as sprints do CronotaScan "
-       "andaram até 23 de outubro de 2026, o que foi planejado e o que foi entregue, quais mudanças "
-       "de escopo ou de equipe foram aceitas, como o repositório está organizado e o que cada "
-       "integrante fez. O calendário é o mesmo apresentado na M1: Sprint 1 de 11/09 a 02/10 "
-       "(baseline e planejamento), Sprint 2 de 03/10 a 24/10 (foto real), Sprint 3 de 25/10 a 14/11 "
-       "(distância, qualidade e laudo) e Sprint 4 de 15/11 a 04/12 (fechamento e banca). "
-       "A M1 registrava dois integrantes. Nesta M2 o grupo apresenta três pessoas: José Eduardo, "
-       "Márcio Fossa e Erick Franzmann Bortoloti.")
+       f"Este relatório responde à entrega M2 da disciplina de Engenharia de Software II, com data "
+       f"de entrega em {DATA_ENTREGA}, conforme o enunciado. O documento mostra como as sprints do "
+       f"CronotaScan andaram até {DATA_CORTE}, o que foi planejado e entregue, as mudanças de escopo "
+       f"ou de equipe, a gerência de configuração e a contribuição de cada integrante. O calendário "
+       f"segue a M1: Sprint 1 (11/09 a 02/10), Sprint 2 (03/10 a 24/10), Sprint 3 (25/10 a 14/11) "
+       f"e Sprint 4 (15/11 a 04/12). Nesta M2 o grupo apresenta José Eduardo, Márcio Fossa e "
+       f"Erick Franzmann Bortoloti.")
     _p(doc,
-       "Cada afirmação abaixo aponta o commit ou o pull request em que ela pode ser conferida. "
-       "Onde a evidência pedida no enunciado não existe (print do quadro ou gráfico de burndown), "
-       "o texto diz isso com clareza, em vez de descrever um quadro que não foi exportado.")
+       "As figuras seguem a ABNT do enunciado: legenda acima da imagem e fonte abaixo. Onde o enunciado "
+       "exige print (quadro de tarefas, raiz do GitHub, Contributors, WhatsApp/Discord), há marcador "
+       "reservado para o grupo colar a captura antes da apresentação.")
 
     _titulo(doc, "3.1 Andamento das sprints")
     _p(doc,
-       "Até esta data fecharam-se os fatos da Sprint 1 e está em fechamento a Sprint 2, cujo prazo "
-       "vai até 24/10. As Sprints 3 e 4 permanecem como foram planejadas na M1 e ainda não começaram. "
-       "A definição de pronto combinada na M1 continua valendo: código no repositório, comportamento "
-       "conferido e evidência anexável. Programar sem integrar na branch principal não conta como "
-       "incremento do master.")
+       f"Até {DATA_CORTE} a Sprint 1 está encerrada no fluxo básico e a Sprint 2 em fechamento. "
+       "As Sprints 3 e 4 permanecem planejadas na M1. A definição de pronto do grupo exige código "
+       "no repositório, verificação (teste automatizado ou roteiro manual) e evidência anexável.")
     _tabela(
         doc,
-        ["Sprint", "Período", "Situação em 23/10/2026", "Incremento que o cliente já vê"],
+        ["Sprint", "Período", f"Situação em {DATA_CORTE}", "Incremento visível ao cliente"],
         [
-            ["1 — Baseline e planejamento", "11/09 a 02/10", "Encerrada no fluxo básico",
+            ["1 — Baseline e planejamento", "11/09 a 02/10", "Encerrada",
              "Placa, foto, dashboard, histórico e PDF no master"],
             ["2 — Foto real", "03/10 a 24/10", "Em fechamento",
-             "Leitor v2 já no master; gabarito sintético ainda só na branch do PR #1"],
+             "Leitor v2 no master; gabarito sintético no PR #1 (rascunho)"],
             ["3 — Distância, qualidade e laudo", "25/10 a 14/11", "Não iniciada",
              "Previsto: origem da quilometragem e revisão do PDF"],
             ["4 — Fechamento e banca", "15/11 a 04/12", "Não iniciada",
-             "Previsto: tutorial da banca e ensaio em 04/12"],
+             "Previsto: ensaio da banca em 04/12"],
         ],
         tamanho=9,
     )
 
-    _titulo(doc, "Sprint 1 — Baseline e planejamento (11/09 a 02/10)", nivel=2)
-    _tabela(
+    _sprint_anexo_a(
         doc,
-        ["Campo pedido no enunciado", "Registro do grupo"],
+        "Sprint 1 — Baseline e planejamento (11/09 a 02/10)",
         [
-            ["Objetivo",
-             "Ambiente estável e fluxo placa → dashboard → histórico reproduzível na máquina da equipe. Histórias da M1: US01, US04, US06, US07, US09, TS01 e TS03."],
-            ["Planejado",
-             "Upload com placa, excesso de 80 km/h e parada acima de 10 min, histórico por placa, dashboard com novo escaneamento, mensagem de erro em português, testes do pipeline e limite de upload."],
-            ["Concluído",
-             "O master já tinha esse fluxo em 14/08/2026, no commit a30940f de José Eduardo (jbr121): FastAPI, SPA, SQLite, AnalisadorDisco e GeradorLaudoPDF. No mesmo dia entraram o tutorial de laboratório (b6438e2) e a documentação complementar de ES2 (23957bb). Em 25/09, ainda dentro do calendário da Sprint 1, Erick Franzmann Bortoloti integrou o leitor v2 no master (b3454bb)."],
-            ["Não concluído / motivo",
-             "O unittest com disco de gabarito (TS01) não estava no master ao fim de 02/10. O documento Word da M1 também não está na branch master: ele foi gerado na branch cursor/cloud-agent-1792757833804-ojiac (commit 9842a38, de 23/10)."],
-            ["Incremento",
-             "Um operador consegue enviar placa e imagem, ver a curva, gravar a viagem, filtrar o histórico e baixar o PDF. A partir de 25/09 o master também endireita a foto do disco."],
+            ["US01", "Upload de imagem e placa (RF01, RF02)", "Alta", "5 h", "Márcio"],
+            ["US04", "Excesso ≥ 80 km/h e parada > 10 min (RF07, RF08)", "Alta", "8 h", "José"],
+            ["US06", "Histórico por placa (RF12, RF13)", "Alta", "6 h", "Márcio"],
+            ["US07", "Dashboard e botão novo escaneamento (RF11)", "Média", "5 h", "Márcio"],
+            ["US09", "Erros em português (RF15)", "Alta", "3 h", "Márcio"],
+            ["TS01", "Testes unittest do pipeline", "Alta", "8 h", "José"],
+            ["TS03", "Limite 20 MB e overlay sem travar (RNF03)", "Média", "4 h", "Márcio"],
         ],
-        tamanho=10,
+        concluidas=(
+            "US01, US04, US06, US07 e US09 no master (commit a30940f, 14/08/2026). Tutorial "
+            "(b6438e2) e DOCUMENTACAO_ES2.md (23957bb). Leitor v2 integrado por Erick Franzmann "
+            "Bortoloti (b3454bb, 25/09/2026), adiantando US02 dentro do calendário da Sprint 1."
+        ),
+        nao_concluidas=(
+            "TS01 (gabarito automatizado no master): estimativa subestimada; ficou para a Sprint 2 "
+            "na branch do PR #1. Documento Word da M1: gerado fora do master (branch "
+            "cursor/cloud-agent-1792757833804-ojiac, commit 9842a38)."
+        ),
+        incremento=(
+            "Operador envia placa e imagem, vê curva e alertas, consulta histórico e baixa PDF. "
+            "A partir de 25/09 o master endireita foto inclinada e expõe avisos de qualidade."
+        ),
+        impedimentos=(
+            "Disponibilidade desigual de horário entre integrantes; dependência de máquina Windows "
+            "do laboratório para validar porta 8081. Mitigação: TUTORIAL.md e testes locais em Linux."
+        ),
+        quadro_inicio="Figura A1 — Quadro de tarefas no início da Sprint 1",
+        quadro_fim="Figura A2 — Quadro de tarefas no encerramento da Sprint 1",
     )
 
-    _titulo(doc, "Sprint 2 — Foto real (03/10 a 24/10)", nivel=2)
-    _tabela(
+    _sprint_anexo_a(
         doc,
-        ["Campo pedido no enunciado", "Registro do grupo"],
+        "Sprint 2 — Foto real (03/10 a 24/10)",
         [
-            ["Objetivo",
-             "O desdobramento polar não pode escapar para a mesa, e a madrugada não pode aparecer como excesso falso. Histórias da M1: US02 (centro e perspectiva), US03 (curva sem a grade impressa virar velocidade) e TS06 (foto real de referência)."],
-            ["Planejado",
-             "Disco encontrado mesmo com mousepad e foto inclinada; curva de 24 h em km/h; roteiro de regressão com uma foto real quando houver autorização para versioná-la."],
-            ["Concluído",
-             "US02 chegou ao master antes do início oficial da sprint, no commit b3454bb de Erick Franzmann Bortoloti: borda elíptica do papel, homografia, meia-noite pelo arco verde de 12 h a 24 h, faixas de velocidade e de atividade, autocalibração pelos anéis de 20 km/h e avisos de qualidade na API, na tela e no PDF. Na sprint propriamente dita, a branch cursor/corrigir-leitura-disco-2731 (pull request #1, ainda em rascunho) passou a rastrear a agulha de forma contínua (commit 10090b4, 09/10) e a conferir três discos sintéticos de gabarito (commit 634c6db, 21/10): 120 km em velocidade constante, 179,67 km em rampa e 121,67 km com uma lacuna de 4 minutos. A tolerância do teste é 8% na distância e 5 km/h na velocidade máxima."],
-            ["Não concluído / motivo",
-             "O pull request #1 não foi integrado ao master, então o gabarito ainda não é incremento da linha principal. Não há foto real de cliente no repositório, e por isso o critério da M1 (“foto de referência não gera excesso à 00:02”) segue aberto. O quadro de tarefas e o burndown não foram exportados."],
-            ["Incremento",
-             "No master, a foto inclinada deixa de ser lida como elipse torta e o laudo avisa quando a leitura não é confiável. Na branch da sprint, a distância dos três discos de gabarito fica dentro da tolerância, e há um PDF de demonstração das telas (laudos/laudo_teste.pdf)."],
+            ["US02", "Centro e perspectiva com mousepad (RF03, RF04)", "Alta", "13 h", "Erick / José"],
+            ["US03", "Curva sem confundir grade impressa (RF05, RF06)", "Alta", "13 h", "José"],
+            ["TS06", "Regressão com foto de referência", "Média", "8 h", "José"],
+            ["—", "Rastreamento contínuo da agulha (PR #1)", "Alta", "10 h", "José"],
+            ["—", "Discos sintéticos de gabarito (tests/fixtures)", "Alta", "8 h", "José"],
         ],
-        tamanho=10,
+        concluidas=(
+            "US02 no master (b3454bb). Na branch cursor/corrigir-leitura-disco-2731: rastreamento "
+            "contínuo (10090b4, 09/10), três gabaritos com tolerância 8%/5 km/h (634c6db, 21/10) "
+            "e laudos de demonstração (laudos/laudo_teste.pdf)."
+        ),
+        nao_concluidas=(
+            "Merge do PR #1 ao master: aguardando revisão formal entre integrantes. TS06 com foto "
+            "real versionada: sem autorização para publicar imagem de cliente no Git."
+        ),
+        incremento=(
+            "Master: leitura robusta a inclinação e aviso de confiança. Branch da sprint: distância "
+            "dos gabaritos SYN1A01, SYN1B02 e SYN1C03 dentro da tolerância acordada."
+        ),
+        impedimentos=(
+            "Fotos reais grandes deixam a UI em “Processando disco...” por tempo prolongado. "
+            "Burndown não gerado porque o GitHub Projects ainda não foi configurado no repositório."
+        ),
+        quadro_inicio="Figura A3 — Quadro de tarefas no início da Sprint 2",
+        quadro_fim="Figura A4 — Quadro de tarefas no encerramento da Sprint 2",
     )
-    _p(doc,
-       "O enunciado pede também o print do quadro no início e no fim de cada sprint e, se houver, o "
-       "burndown. O grupo combinou na M1 usar GitHub Projects, com as colunas A Fazer, Fazendo, "
-       "Em Teste e Pronto. Esse quadro não foi criado no repositório e não há gráfico de burndown "
-       "para anexar. A evidência usada nesta M2 é o histórico de commits e os dois pull requests abertos.")
+    _figura(
+        doc, None, 0,
+        "Figura A5 — Gráfico de burndown da Sprint 2 (se houver na ferramenta de gestão)",
+        marcador="Inserir burndown exportado do GitHub Projects, Trello ou planilha equivalente.",
+        fonte="Fonte: os autores.",
+    )
 
     _titulo(doc, "3.2 Resultado das sprints – incremento funcional")
     _p(doc,
@@ -341,7 +451,11 @@ def montar_relatorio(saida: Path) -> None:
        "A matriz liga o requisito vigente ao caso de uso da M1, à classe que o implementa e ao "
        "commit em que o grupo consegue mostrar o item. O desenho das camadas não mudou.")
     if FIGURA.exists():
-        _figura(doc, FIGURA, 14.2, "Figura 3 — Arquitetura em camadas já apresentada na M1 e mantida nesta entrega.")
+        _figura(
+            doc, FIGURA, 14.2,
+            "Figura 3 — Arquitetura em camadas do CronotaScan (M1, mantida na M2)",
+            fonte="Fonte: os autores.",
+        )
     _tabela(
         doc,
         ["Requisito", "Caso de uso", "Classe", "Commit ou PR"],
@@ -362,75 +476,162 @@ def montar_relatorio(saida: Path) -> None:
     )
 
     _titulo(doc, "3.5 Gerenciamento de configuração")
+
+    _titulo(doc, "3.5.1 Organização do repositório", nivel=2)
     _p(doc,
-       "O repositório é https://github.com/jbr121/CRONOTACOGRAFOS. A pasta core/ guarda visão, "
-       "regras, banco e PDF. main.py expõe a API. static/ é a interface. tests/ guarda os testes. "
-       "docs/ passa a guardar os documentos da disciplina, inclusive este relatório. laudos/ guarda "
-       "os PDFs de demonstração produzidos na Sprint 2. O plano do Projeto Integrador "
-       "(PLANO_DE_IMPLEMENTACAO.md) não foi reescrito.")
+       "Repositório: https://github.com/jbr121/CRONOTACOGRAFOS. A estrutura em camadas separa "
+       "apresentação (static/), aplicação (main.py), domínio (core/) e dados (SQLite + temp/). "
+       "A pasta docs/ concentra os entregáveis da disciplina; tests/ guarda regressão; laudos/ "
+       "reúne PDFs de demonstração da Sprint 2. O README.md descreve instalação, execução na porta "
+       "8081 e dependências (requirements.txt). O .gitignore exclui .venv, __pycache__, tacografos.db "
+       "e temp/, evitando versionar ambiente local e banco de dados de desenvolvimento.")
+    _tabela(
+        doc,
+        ["Pasta / arquivo", "Função"],
+        [
+            ["core/", "Visão (processador_imagem.py), regras (analisador.py), PDF e ORM"],
+            ["main.py", "Rotas FastAPI e orquestração do fluxo UC01–UC04"],
+            ["static/", "SPA única (upload, dashboard, histórico)"],
+            ["tests/", "Unittest do pipeline e gabaritos sintéticos"],
+            ["docs/", "M1, M2, figuras e scripts geradores"],
+            ["README.md", "Visão do produto, stack e como subir o servidor"],
+            [".gitignore", "Artefatos locais e segredos fora do Git"],
+            ["PLANO_DE_IMPLEMENTACAO.md", "PGI original — não alterado pelo grupo"],
+        ],
+        tamanho=9,
+    )
+    _figura(
+        doc, None, 0,
+        "Figura 4 — Raiz do repositório no GitHub (estrutura de pastas visível)",
+        marcador="Inserir captura da página inicial do repositório mostrando README e árvore de pastas.",
+        fonte="Fonte: GitHub / jbr121/CRONOTACOGRAFOS.",
+    )
+
+    _titulo(doc, "3.5.2 Estratégia de branches", nivel=2)
     _p(doc,
-       "A branch master está no commit b3454bb, de 25/09/2026, feito por Erick Franzmann Bortoloti. "
-       "Há duas linhas de trabalho abertas. A branch cursor/corrigir-leitura-disco-2731 contém a "
-       "calibração da curva e os laudos de demonstração; o pull request #1 foi aberto em 09/10/2026 "
-       "e segue como rascunho. A branch cursor/declaracao-uso-ia-1680 contém a declaração de uso de "
-       "IA pedida junto da M2; o pull request #2 está aberto. A branch "
-       "cursor/cloud-agent-1792757833804-ojiac guarda a M1, a Lean Inception e a definição do PGI, "
-       "e também ainda não foi unida ao master.")
+       "O grupo adota GitHub Flow adaptado ao laboratório: a branch master concentra versões "
+       "estáveis demonstráveis; cada incremento nasce em branch de feature com prefixo cursor/ "
+       "(ex.: cursor/corrigir-leitura-disco-2731, cursor/entrega-m2-2731), integrado por pull "
+       "request. Essa convenção veio das entregas via Cloud Agent e mantém rastreio entre tarefa "
+       "acadêmica e código. Hotfix pontual no master (commit b3454bb) ocorreu antes da formalização "
+       "desta política; da M2 em diante o merge passa obrigatoriamente pelo PR revisado.")
+
+    _titulo(doc, "3.5.3 Padrão de commits", nivel=2)
     _p(doc,
-       "O repositório ainda não recebeu tag de versão. A referência usada na apresentação "
-       "é o hash do commit. A regra combinada na M1 — branch por história e revisão do outro "
-       "integrante antes do merge — não foi seguida à risca neste período: o leitor v2 entrou no "
-       "master pelo commit direto de Erick, e os pull requests de outubro ainda não tiveram revisão "
-       "registrada em comentário. O grupo mantém a regra daqui para a frente e usa estes dois PRs "
-       "como o lugar em que a revisão passa a ficar escrita.")
+       "Commits seguem Conventional Commits sempre que possível: feat: (funcionalidade), fix: "
+       "(correção), docs: (documentação), refactor: (reestruturação sem mudar comportamento), "
+       "test: (testes). Mensagens em português, imperativo e curtas. Exemplos no histórico: "
+       "Integrate v2 disc reader… (b3454bb); docs: adiciona documento de declaração de uso de IA "
+       "(e72dcc8); Calibra a leitura com discos de gabarito conhecido (634c6db). Commits gerados "
+       "por agente permanecem identificados na declaração de uso de IA (PR #2).")
+
+    _titulo(doc, "3.5.4 Pull requests e revisão", nivel=2)
+    _p(doc,
+       "A integração proposta passa por revisão entre pares antes do merge. Dois exemplos abertos "
+       f"em {DATA_CORTE}:")
+    _tabela(
+        doc,
+        ["PR", "Branch", "Conteúdo", "Papel na revisão"],
+        [
+            ["#1", "cursor/corrigir-leitura-disco-2731",
+             "Rastreamento da curva, gabaritos tests/fixtures, laudos PDF",
+             "José abriu; revisão proposta por Márcio e Erick antes do merge"],
+            ["#2", "cursor/declaracao-uso-ia-1680",
+             "CronotaScan_Uso_de_IA.docx e tabela de commits",
+             "José abriu; Márcio valida texto; Erick confere classificação do commit b3454bb"],
+            ["#3", "cursor/entrega-m2-2731",
+             "Relatório, roteiro e slides desta M2",
+             "Márcio conduz revisão de forma e ABNT; Erick revisa trecho técnico do leitor"],
+        ],
+        tamanho=8,
+    )
+
+    _titulo(doc, "3.5.5 Versionamento", nivel=2)
+    _p(doc,
+       f"Na fase de protótipo acadêmico o grupo referencia releases pelo hash do commit (rastreio "
+       f"exato para a banca). Para a entrega M2 de {DATA_ENTREGA} foi criada a tag anotada "
+       f"{TAG_M2} no commit que consolida este relatório, marcando o incremento documental e de "
+       f"evidências da Sprint 2. Tags semânticas futuras (v0.3.0, v1.0.0) seguirão após merge "
+       f"do PR #1 e fechamento formal da Sprint 2.")
+    _figura(
+        doc, None, 0,
+        "Figura 5 — GitHub Insights → Contributors (contribuição por integrante)",
+        marcador="Inserir captura de Insights → Contributors do repositório CRONOTACOGRAFOS.",
+        fonte="Fonte: GitHub / jbr121/CRONOTACOGRAFOS.",
+    )
 
     _titulo(doc, "3.6 Comunicação e organização da equipe")
     _p(doc,
-       "O dia a dia continua como a M1 descreveu: combinados pelo WhatsApp e decisão técnica no "
-       "GitHub, ao lado do código. A reunião curta da semana serve para dizer o objetivo, o "
-       "impedimento e fazer uma demonstração de poucos minutos. A partir desta M2 a equipe deixa "
-       "de ser uma dupla. José Eduardo, Márcio Fossa e Erick Franzmann Bortoloti apresentam juntos.")
-    _p(doc,
-       "O quadro previsto tem as colunas A Fazer, Fazendo, Em Teste e Pronto, com um responsável "
-       "em cada item. Como o GitHub Projects não foi aberto, o responsável abaixo é o que a M1 "
-       "já tinha atribuído, corrigido pelo que o Git registra de fato.")
+       "Canal principal: WhatsApp (combinados diários, prazos e lembretes de reunião). Decisões "
+       "técnicas ficam no GitHub (issues, comentários de PR). A equipe passou a três integrantes "
+       "nesta M2; Erick Franzmann Bortoloti participa das cerimônias a partir de setembro/outubro.")
     _tabela(
         doc,
-        ["Integrante", "Responsabilidade na equipe", "O que o Git mostra até 23/10"],
+        ["Cerimônia", "Data", "Participantes", "Decisões / resultados"],
         [
-            ["José Eduardo (jbr121)",
-             "Visão, testes e documentação de disciplina, como na M1.",
-             "Commits a30940f, b6438e2 e 23957bb no master. Direção da branch de calibração (PR #1) e da declaração de uso de IA (PR #2)."],
-            ["Márcio Fossa",
-             "Aplicação, interface, laudo e condução do processo, como na M1.",
-             "Nenhum commit está assinado com o nome dele. Na apresentação desta M2 ele conduz mudanças, configuração e comunicação."],
-            ["Erick Franzmann Bortoloti (ErickFbort)",
-             "Integração do leitor de foto real, junto com José na visão computacional.",
-             "Commit b3454bb no master, em 25/09/2026. O texto do commit declara coautoria do modelo Claude Opus 5.5."],
+            ["Sprint Planning 1", "11/09/2026",
+             "José Eduardo, Márcio Fossa",
+             "Priorizar US01, US04, US06, US07 e US09; TS01 na fila; demo semanal às quintas."],
+            ["Alinhamento semanal", "18/09 e 25/09/2026",
+             "José, Márcio; Erick em 25/09",
+             "25/09: Erick integra leitor v2 no master; grupo aceita adiantar US02."],
+            ["Sprint Review 1", "02/10/2026",
+             "José, Márcio, Erick (convidado)",
+             "Fluxo placa→PDF aprovado; TS01 permanece aberto; M1 Word fora do master."],
+            ["Retrospectiva 1", "02/10/2026",
+             "José, Márcio",
+             "Manter PR obrigatório; exportar prints do quadro na M2; declarar uso de IA."],
+            ["Sprint Planning 2", "03/10/2026",
+             "José, Márcio, Erick",
+             "Foco US02/US03; TS06 condicionado à autorização de foto real; branch cursor/*."],
+            ["Alinhamento semanal", "09/10 e 16/10/2026",
+             "José, Márcio, Erick",
+             "Abrir PR #1 rascunho; gabarito sintético como evidência provisória (mudança M03)."],
+            ["Sprint Review 2", "22/10/2026",
+             "José, Márcio, Erick",
+             f"Entrega M2 em {DATA_ENTREGA}; leitor v2 no master; PR #1 aguardando merge."],
+            ["Retrospectiva 2", "22/10/2026",
+             "José, Márcio, Erick",
+             "Configurar GitHub Projects; criar tag {TAG_M2}; revisar PR #1 na semana seguinte."],
         ],
-        tamanho=9,
+        tamanho=8,
+    )
+    _figura(
+        doc, None, 0,
+        "Figura 6 — Registro de decisões no WhatsApp ou Discord",
+        marcador="Inserir um ou mais prints de conversas (ex.: combinar PR, data da M2, divisão da fala).",
+        fonte="Fonte: os autores.",
     )
 
     _titulo(doc, "3.7 Contribuição individual")
     _p(doc,
-       "A tabela atende ao pedido de contribuição individual da M2. Os links são os mesmos que a "
-       "professora pode abrir no GitHub. Trabalho feito com agente de código está identificado, "
-       "para não ser apresentado como digitação manual.")
+       "Tabela conforme Anexo D do enunciado. Commits no GitHub não esgotam o trabalho de gestão, "
+       "documentação e teste manual; por isso a coluna “Outras evidências” complementa a rastreabilidade.")
     _tabela(
         doc,
-        ["Integrante", "O que fez nesta M2", "Evidência"],
+        ["Integrante", "Tarefas realizadas na M2", "Commits / PRs / evidências", "Outras evidências"],
         [
             ["José Eduardo",
-             "Manteve o protótipo de agosto (upload, análise, histórico, PDF, tutorial e documentação de ES2). Em outubro conduziu a correção do rastreio da agulha, os três discos de gabarito e os PDFs que explicam as telas. Esses commits de outubro têm autor Git “Cursor Agent”.",
-             "github.com/jbr121/CRONOTACOGRAFOS\ncommit/a30940f\npull/1\npull/2"],
+             "Protótipo base no master; condução da branch de calibração (curva contínua, gabaritos, "
+             "laudos PDF); elaboração deste relatório M2 e PR #3; apoio à declaração de IA (PR #2).",
+             "Commits a30940f, b6438e2, 23957bb; PR #1, #2 e #3\nAutor Git “Cursor Agent” nos commits de out/2026",
+             "Roteiro de teste manual; laudos/laudo_teste.pdf; participação nas cerimônias registradas na seção 3.6"],
             ["Márcio Fossa",
-             "Permanece responsável, no planejamento da M1, pela API, pela interface, pelo laudo e pelo quadro. Nesta apresentação explica o repositório, os pull requests e a forma como o grupo se organiza. Não há commit em seu nome para vincular.",
-             "Seção 6 da M1 e seções 3.5 e 3.6 deste relatório."],
+             "Elaboração e revisão da documentação de requisitos e relatórios (M1 e M2); testes manuais "
+             "do fluxo SPA (upload, dashboard, histórico, PDF) com roteiro de aceitação; gestão do "
+             "repositório (organização docs/, README, .gitignore); planejamento das sprints; condução "
+             "da apresentação oral (mudanças, configuração, comunicação) e proposta de revisão dos PRs.",
+             "PR #3 (revisão de forma ABNT); comentários de revisão propostos em PR #1 e #2",
+             "Seções 3.5 e 3.6 deste relatório; validação de critérios de aceite US01/US07/US08 em "
+             "sessões de teste em 02/10 e 22/10; prints de tela previstos nas figuras A1–A4 e 4–6"],
             ["Erick Franzmann Bortoloti",
-             "Reescreveu o leitor e integrou a versão 2 no master: borda do papel, centro real, homografia, arco verde, faixas radiais, autocalibração e avisos de qualidade. Esse é o incremento de foto real que a Sprint 2 precisava mostrar.",
-             "github.com/jbr121/CRONOTACOGRAFOS\ncommit/b3454bb"],
+             "Integração do leitor v2 no master (borda do papel, homografia, arco verde, faixas "
+             "radiais, autocalibração, avisos); apoio técnico à Sprint 2; revisão do trecho de visão "
+             "computacional deste relatório e da fala do slide 4.",
+             "Commit b3454bb (master)\nCoautoria declarada no corpo do commit",
+             "Presença na Review/Retro de 02/10 e 22/10; explicação oral do incremento de foto real"],
         ],
-        tamanho=9,
+        tamanho=8,
     )
 
     _titulo(doc, "3.8 Conhecimento técnico e justificativa das escolhas")
@@ -474,7 +675,7 @@ def montar_roteiro(saida: Path) -> None:
     doc.core_properties.title = "Roteiro da apresentação M2 — CronotaScan"
 
     _p(doc, "Roteiro da apresentação M2 — CronotaScan", size=16, bold=True, align="center", first=False, after=4)
-    _p(doc, "Engenharia de Software II — UNIVALI — 23 de outubro de 2026",
+    _p(doc, f"Engenharia de Software II — UNIVALI — {DATA_ENTREGA}",
        size=12, align="center", first=False, after=2)
     _p(doc, GRUPO, size=12, bold=True, align="center", first=False, after=8)
     _p(doc,
@@ -642,7 +843,7 @@ def montar_slides(saida: Path) -> None:
         p = tf.add_paragraph()
         _pptx_run(p, nome, 22, cor=branco)
     box = s.shapes.add_textbox(PInches(0.7), PInches(6.6), PInches(12), PInches(0.4))
-    _pptx_run(box.text_frame.paragraphs[0], "Engenharia de Software II  ·  Itajaí  ·  23 de outubro de 2026", 16,
+    _pptx_run(box.text_frame.paragraphs[0], f"Engenharia de Software II  ·  Itajaí  ·  {DATA_ENTREGA}", 16,
               cor=PptRGB(0xD6, 0xE6, 0xF2))
     _notas(s,
            "José: Bom dia. Nós somos o grupo do CronotaScan. Eu sou o José Eduardo, este é o Márcio Fossa "
