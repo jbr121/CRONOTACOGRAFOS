@@ -4,7 +4,7 @@ Análise de viagem e detecção de infrações a partir da curva de velocidade.
 Fase de Tratamento de Ruído / Infrações (PGI):
 - Excesso de velocidade acima do limite configurável
 - Paradas prolongadas (velocidade zero por mais de 10 minutos)
-- Distância aproximada por integração velocidade × tempo
+- Distância pela pista do odômetro (zigue-zague), não pela integração da curva
 """
 
 from __future__ import annotations
@@ -14,8 +14,9 @@ from typing import Final, Literal, TypedDict
 
 MINUTOS_PARADA_PROLONGADA: Final[int] = 10
 LIMITE_VELOCIDADE_PADRAO_KMH: Final[float] = 80.0
-# Após a média móvel, valores muito baixos são tratados como parado (0.0)
 TOLERANCIA_PARADO_KMH: Final[float] = 0.5
+# Picos de 1 minuto (sujeira) não viram infração
+MINUTOS_MINIMOS_EXCESSO: Final[int] = 2
 
 
 class PontoCurva(TypedDict):
@@ -54,10 +55,13 @@ class ResumoViagem(TypedDict):
     velocidade_maxima_kmh: float
     velocidade_media_kmh: float
     limite_velocidade_kmh: float
+    origem_distancia: str
     total_pontos: int
     total_infracoes: int
     total_excessos: int
     total_paradas_prolongadas: int
+    minutos_em_movimento: int
+    minutos_excesso: int
 
 
 class ResultadoAnalise(TypedDict):
@@ -79,19 +83,24 @@ class AnalisadorDisco:
         self,
         minutos_parada_prolongada: int = MINUTOS_PARADA_PROLONGADA,
         tolerancia_parado_kmh: float = TOLERANCIA_PARADO_KMH,
+        minutos_minimos_excesso: int = MINUTOS_MINIMOS_EXCESSO,
     ) -> None:
         if minutos_parada_prolongada <= 0:
             raise ValueError("minutos_parada_prolongada deve ser positivo.")
         if tolerancia_parado_kmh < 0:
             raise ValueError("tolerancia_parado_kmh não pode ser negativa.")
+        if minutos_minimos_excesso < 1:
+            raise ValueError("minutos_minimos_excesso deve ser >= 1.")
 
         self.minutos_parada_prolongada = minutos_parada_prolongada
         self.tolerancia_parado_kmh = tolerancia_parado_kmh
+        self.minutos_minimos_excesso = minutos_minimos_excesso
 
     def analisar_infracoes(
         self,
         curva_velocidade: list[dict[str, object]] | list[PontoCurva],
         limite_velocidade: float = LIMITE_VELOCIDADE_PADRAO_KMH,
+        distancia_km: float | None = None,
     ) -> ResultadoAnalise:
         """
         Analisa a curva tratada e devolve resumo + lista de infrações.
@@ -99,6 +108,8 @@ class AnalisadorDisco:
         Parâmetros:
         - curva_velocidade: lista no formato [{"hora": "00:00", "velocidade_kmh": 0.0}, ...]
         - limite_velocidade: limiar em km/h para marcar excesso (padrão 80.0)
+        - distancia_km: se informada (pista do odômetro), substitui a integração
+          da curva de velocidade — que infla km quando há picos de ruído.
         """
         if limite_velocidade <= 0:
             raise ValueError("limite_velocidade deve ser positivo.")
@@ -111,10 +122,13 @@ class AnalisadorDisco:
                     "velocidade_maxima_kmh": 0.0,
                     "velocidade_media_kmh": 0.0,
                     "limite_velocidade_kmh": float(limite_velocidade),
+                    "origem_distancia": "indisponivel",
                     "total_pontos": 0,
                     "total_infracoes": 0,
                     "total_excessos": 0,
                     "total_paradas_prolongadas": 0,
+                    "minutos_em_movimento": 0,
+                    "minutos_excesso": 0,
                 },
                 "infracoes": [],
             }
@@ -123,20 +137,34 @@ class AnalisadorDisco:
         paradas = self._detectar_paradas_prolongadas(pontos)
         infracoes: list[Infracao] = [*excessos, *paradas]
 
-        distancia = self._calcular_distancia_km(pontos)
+        if distancia_km is not None and distancia_km >= 0:
+            distancia = float(distancia_km)
+            origem_distancia = "odometro"
+        else:
+            # Último recurso: não usa a curva ruidosa como fonte primária
+            distancia = 0.0
+            origem_distancia = "indisponivel"
+
         velocidades = [p["velocidade_kmh"] for p in pontos]
         velocidade_maxima = max(velocidades)
-        velocidade_media = sum(velocidades) / len(velocidades)
+        em_movimento = [v for v in velocidades if v > self.tolerancia_parado_kmh]
+        velocidade_media = (
+            sum(em_movimento) / len(em_movimento) if em_movimento else 0.0
+        )
+        minutos_excesso = sum(int(e["duracao_minutos"]) for e in excessos)
 
         resumo: ResumoViagem = {
             "distancia_estimada_km": round(distancia, 2),
             "velocidade_maxima_kmh": round(velocidade_maxima, 1),
             "velocidade_media_kmh": round(velocidade_media, 1),
             "limite_velocidade_kmh": float(limite_velocidade),
+            "origem_distancia": origem_distancia,
             "total_pontos": len(pontos),
             "total_infracoes": len(infracoes),
             "total_excessos": len(excessos),
             "total_paradas_prolongadas": len(paradas),
+            "minutos_em_movimento": len(em_movimento),
+            "minutos_excesso": minutos_excesso,
         }
 
         return {"resumo": resumo, "infracoes": infracoes}
@@ -179,6 +207,11 @@ class AnalisadorDisco:
         def fechar(fim_exclusivo: int) -> None:
             nonlocal inicio, maxima
             if inicio is None:
+                return
+            duracao = fim_exclusivo - inicio
+            if duracao < self.minutos_minimos_excesso:
+                inicio = None
+                maxima = 0.0
                 return
             infracoes.append(
                 {
@@ -223,15 +256,21 @@ class AnalisadorDisco:
             if inicio is None:
                 return
             duracao = fim_exclusivo - inicio
-            if duracao > self.minutos_parada_prolongada:
-                infracoes.append(
-                    {
-                        "tipo": "parada_prolongada",
-                        "hora_inicio": pontos[inicio]["hora"],
-                        "hora_fim": pontos[fim_exclusivo - 1]["hora"],
-                        "duracao_minutos": duracao,
-                    }
-                )
+            if duracao <= self.minutos_parada_prolongada:
+                inicio = None
+                return
+            # Ignora pátio no começo/fim do disco (caminhão já parado)
+            if inicio == 0 or fim_exclusivo >= len(pontos):
+                inicio = None
+                return
+            infracoes.append(
+                {
+                    "tipo": "parada_prolongada",
+                    "hora_inicio": pontos[inicio]["hora"],
+                    "hora_fim": pontos[fim_exclusivo - 1]["hora"],
+                    "duracao_minutos": duracao,
+                }
+            )
             inicio = None
 
         for indice, ponto in enumerate(pontos):
@@ -246,10 +285,9 @@ class AnalisadorDisco:
 
     def _calcular_distancia_km(self, pontos: list[PontoCurva]) -> float:
         """
-        Integra velocidade × tempo (aproximação retangular).
+        Integração velocidade × tempo (NÃO usada como km oficial).
 
-        distância (km) = Σ velocidade_i (km/h) × Δt (h)
-        Com Δt = 1/60 h por ponto (1 minuto).
+        Mantida só como referência interna. O laudo usa a pista do odômetro.
         """
         dt_horas = 1.0 / 60.0
         return float(sum(p["velocidade_kmh"] * dt_horas for p in pontos))

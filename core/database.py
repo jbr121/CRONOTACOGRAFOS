@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, create_engine
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, create_engine, text
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -53,6 +53,11 @@ class LeituraViagem(Base):
     )
     distancia_total_km: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     velocidade_maxima: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    velocidade_media: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    confianca_leitura: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    aviso_qualidade: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    caminho_imagem: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    origem_distancia: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
 
     # Relação 1:N — uma viagem possui várias infrações
     infracoes: Mapped[list["Infracao"]] = relationship(
@@ -99,6 +104,20 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
+def _adicionar_coluna_se_ausente(tabela: str, coluna: str, ddl: str) -> None:
+    """Migração leve: bancos antigos ganham colunas novas sem apagar dados."""
+    with engine.begin() as conn:
+        linhas = conn.execute(text(f"PRAGMA table_info({tabela})")).fetchall()
+        existentes = {str(linha[1]) for linha in linhas}
+        if coluna not in existentes:
+            conn.execute(text(f"ALTER TABLE {tabela} ADD COLUMN {coluna} {ddl}"))
+
+
 def criar_tabelas() -> None:
-    """Cria as tabelas no SQLite se ainda não existirem."""
+    """Cria as tabelas no SQLite se ainda não existirem e aplica migrações."""
     Base.metadata.create_all(bind=engine)
+    _adicionar_coluna_se_ausente("leituras_viagem", "velocidade_media", "FLOAT")
+    _adicionar_coluna_se_ausente("leituras_viagem", "confianca_leitura", "FLOAT")
+    _adicionar_coluna_se_ausente("leituras_viagem", "aviso_qualidade", "VARCHAR(512)")
+    _adicionar_coluna_se_ausente("leituras_viagem", "caminho_imagem", "VARCHAR(512)")
+    _adicionar_coluna_se_ausente("leituras_viagem", "origem_distancia", "VARCHAR(32)")

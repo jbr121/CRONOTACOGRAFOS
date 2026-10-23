@@ -181,7 +181,7 @@ class GeradorLaudoPDF:
         ]
 
     def _bloco_resumo(self, viagem: LeituraViagem, total_infracoes: int) -> list[object]:
-        return [
+        elementos: list[object] = [
             Paragraph("1. Resumo operacional", self._estilos["secao"]),
             self._tabela_dados(
                 [
@@ -193,6 +193,28 @@ class GeradorLaudoPDF:
                         "Velocidade máxima registrada (km/h)",
                         f"{float(viagem.velocidade_maxima):.1f}",
                     ],
+                    [
+                        "Velocidade média em movimento (km/h)",
+                        (
+                            f"{float(viagem.velocidade_media):.1f}"
+                            if viagem.velocidade_media is not None
+                            else "—"
+                        ),
+                    ],
+                    [
+                        "Confiança da leitura (%)",
+                        (
+                            f"{float(viagem.confianca_leitura):.0f}"
+                            if viagem.confianca_leitura is not None
+                            else "—"
+                        ),
+                    ],
+                    [
+                        "Origem da distância",
+                        "Odômetro gráfico (zigue-zague)"
+                        if viagem.origem_distancia == "odometro"
+                        else "Indisponível",
+                    ],
                     ["Total de infrações detectadas", str(total_infracoes)],
                     [
                         "Limite de velocidade de referência (km/h)",
@@ -201,6 +223,15 @@ class GeradorLaudoPDF:
                 ]
             ),
         ]
+        if viagem.aviso_qualidade:
+            elementos.append(Spacer(1, 3 * mm))
+            elementos.append(
+                Paragraph(
+                    f"Observação de qualidade: {viagem.aviso_qualidade}",
+                    self._estilos["corpo"],
+                )
+            )
+        return elementos
 
     def _bloco_imagem(self, caminho_imagem: str | None) -> list[object]:
         elementos: list[object] = [
@@ -243,7 +274,7 @@ class GeradorLaudoPDF:
             elementos.append(
                 Paragraph(
                     "Figura: transformação polar→cartesiana (eixo X ≈ 24 h; "
-                    "eixo Y ≈ 0–120 km/h).",
+                    "eixo Y ≈ 0–125 km/h).",
                     self._estilos["subtitulo"],
                 )
             )

@@ -41,7 +41,7 @@ app = FastAPI(
         "Protótipo (PGI): análise de discos, histórico, laudos PDF e "
         "tratamento robusto de falhas (Sprint 5)."
     ),
-    version="0.8.0",
+    version="0.9.10",
 )
 
 # Garante o schema do banco ao subir a API
@@ -53,9 +53,47 @@ gerador_pdf = GeradorLaudoPDF(limite_velocidade_kmh=80.0)
 
 AMOSTRAS_CURVA_JSON: int = 10
 LIMITE_VELOCIDADE_PADRAO_KMH: float = 80.0
+TAMANHO_MAXIMO_UPLOAD_BYTES: int = 20 * 1024 * 1024
+DIAS_RETENCAO_TEMP: int = 14
 
 # Mapa em memória: viagem_id → caminho da imagem desdobrada (válido na sessão da API)
 IMAGENS_DEBUG_POR_VIAGEM: dict[int, str] = {}
+
+
+def _resolver_imagem_debug(viagem_id: int, caminho_gravado: str | None) -> str | None:
+    """Localiza o PNG desdobrado da viagem (banco, sessão ou pasta temp)."""
+    candidatos: list[Path] = []
+    em_memoria = IMAGENS_DEBUG_POR_VIAGEM.get(viagem_id)
+    if em_memoria:
+        candidatos.append(Path(em_memoria))
+    if caminho_gravado:
+        gravado = Path(caminho_gravado)
+        candidatos.append(gravado)
+        candidatos.append(PASTA_TEMP / gravado.name)
+    candidatos.append(PASTA_TEMP / f"viagem_{viagem_id}.png")
+    vistos: set[str] = set()
+    for cand in candidatos:
+        chave = str(cand.resolve()) if cand.exists() else str(cand)
+        if chave in vistos:
+            continue
+        vistos.add(chave)
+        if cand.is_file():
+            return str(cand)
+    return None
+
+
+def _limpar_temp_antigos() -> None:
+    """Remove PNGs de debug mais velhos que DIAS_RETENCAO_TEMP."""
+    limite = datetime.now().timestamp() - DIAS_RETENCAO_TEMP * 24 * 3600
+    try:
+        for arquivo in PASTA_TEMP.glob("*.png"):
+            try:
+                if arquivo.stat().st_mtime < limite:
+                    arquivo.unlink(missing_ok=True)
+            except OSError:
+                continue
+    except OSError:
+        return
 
 
 def _json_erro(status_code: int, mensagem: str, codigo: str) -> JSONResponse:
@@ -146,7 +184,11 @@ async def raiz() -> FileResponse:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Arquivo static/index.html não encontrado.",
         )
-    return FileResponse(ARQUIVO_INDEX, media_type="text/html")
+    return FileResponse(
+        ARQUIVO_INDEX,
+        media_type="text/html",
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
 
 
 @app.get("/api/health")
@@ -155,6 +197,7 @@ async def health() -> dict[str, str]:
     return {
         "projeto": "Leitor de Discos de Cronotacógrafo",
         "fase": "Sprint 5 - Robustez e apresentação",
+        "versao": app.version,
         "status": "ok",
     }
 
@@ -188,6 +231,8 @@ async def listar_viagens(
                 LeituraViagem.data_processamento,
                 LeituraViagem.distancia_total_km,
                 LeituraViagem.velocidade_maxima,
+                LeituraViagem.velocidade_media,
+                LeituraViagem.confianca_leitura,
                 func.coalesce(contagem_infracoes.c.total_infracoes, 0).label(
                     "total_infracoes"
                 ),
@@ -222,6 +267,16 @@ async def listar_viagens(
                 else str(data),
                 "distancia_total_km": float(linha.distancia_total_km),
                 "velocidade_maxima": float(linha.velocidade_maxima),
+                "velocidade_media": (
+                    float(linha.velocidade_media)
+                    if linha.velocidade_media is not None
+                    else None
+                ),
+                "confianca_leitura": (
+                    float(linha.confianca_leitura)
+                    if linha.confianca_leitura is not None
+                    else None
+                ),
                 "total_infracoes": int(linha.total_infracoes),
             }
         )
@@ -284,6 +339,16 @@ async def detalhar_viagem(
         )
 
     data = viagem.data_processamento
+    confianca = (
+        float(viagem.confianca_leitura)
+        if viagem.confianca_leitura is not None
+        else None
+    )
+    media = (
+        float(viagem.velocidade_media)
+        if viagem.velocidade_media is not None
+        else None
+    )
     payload: dict[str, Any] = {
         "id": int(viagem.id),
         "placa_veiculo": str(viagem.placa_veiculo),
@@ -296,12 +361,18 @@ async def detalhar_viagem(
         "resumo_viagem": {
             "distancia_estimada_km": float(viagem.distancia_total_km),
             "velocidade_maxima_kmh": float(viagem.velocidade_maxima),
-            # Média não é persistida no banco; a SPA exibe "—" quando ausente
-            "velocidade_media_kmh": None,
+            "velocidade_media_kmh": media,
             "limite_velocidade_kmh": LIMITE_VELOCIDADE_PADRAO_KMH,
+            "origem_distancia": viagem.origem_distancia or "indisponivel",
             "total_infracoes": len(infracoes_json),
+            "confianca": confianca,
+            "aviso_qualidade": viagem.aviso_qualidade or "",
         },
         "infracoes": infracoes_json,
+        "qualidade": {
+            "confianca": confianca,
+            "aviso": viagem.aviso_qualidade or "",
+        },
     }
 
     return JSONResponse(content=payload, status_code=status.HTTP_200_OK)
@@ -335,15 +406,7 @@ async def gerar_laudo_pdf(
             detail=f"Viagem {viagem_id} não encontrada.",
         )
 
-    caminho_imagem = IMAGENS_DEBUG_POR_VIAGEM.get(viagem_id)
-    # Se o mapa em memória não tiver a imagem (API reiniciada), tenta o PNG mais recente em temp/
-    if not caminho_imagem or not Path(caminho_imagem).is_file():
-        candidatos = sorted(
-            PASTA_TEMP.glob("*.png"),
-            key=lambda p: p.stat().st_mtime,
-            reverse=True,
-        )
-        caminho_imagem = str(candidatos[0]) if candidatos else None
+    caminho_imagem = _resolver_imagem_debug(viagem_id, viagem.caminho_imagem)
 
     try:
         pdf_bytes = gerador_pdf.gerar_pdf_viagem(
@@ -401,6 +464,11 @@ async def upload_disco(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="O arquivo enviado está vazio.",
         )
+    if len(dados) > TAMANHO_MAXIMO_UPLOAD_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail="A imagem ultrapassa 20 MB. Envie um PNG ou JPG menor.",
+        )
 
     try:
         resultado = leitor.processar(dados)
@@ -411,16 +479,30 @@ async def upload_disco(
             nome_base=nome_origem,
         )
 
-        curva_tratada = leitor.extrair_curva_velocidade(resultado.imagem_desdobrada)
+        curva_tratada = leitor.extrair_curva_velocidade(
+            resultado.imagem_desdobrada,
+            mascara_grade=resultado.mascara_grade_desdobrada,
+        )
         analise = analisador.analisar_infracoes(
             curva_tratada,
             limite_velocidade=LIMITE_VELOCIDADE_PADRAO_KMH,
+            distancia_km=resultado.distancia_odometro_km,
+        )
+        mask_grade = resultado.mascara_grade_desdobrada
+        confianca, aviso_qualidade = leitor.avaliar_qualidade(
+            curva_tratada,
+            resultado.distancia_odometro_km,
+            resultado.alinhamento_gota,
+            resultado.nitidez,
+            tem_grade=mask_grade is not None and int(mask_grade.max()) > 0,
         )
     except ErroProcessamentoDisco:
         # Deixa o exception handler global formatar 400/422 em português
         raise
 
     resumo = analise["resumo"]
+    resumo["confianca"] = confianca
+    resumo["aviso_qualidade"] = aviso_qualidade
     infracoes_detectadas = analise["infracoes"]
 
     # --- Persistência: viagem + infrações ---
@@ -430,9 +512,23 @@ async def upload_disco(
             data_processamento=datetime.now(),
             distancia_total_km=float(resumo["distancia_estimada_km"]),
             velocidade_maxima=float(resumo["velocidade_maxima_kmh"]),
+            velocidade_media=float(resumo["velocidade_media_kmh"]),
+            confianca_leitura=float(confianca),
+            aviso_qualidade=(aviso_qualidade[:512] if aviso_qualidade else None),
+            origem_distancia=str(resumo.get("origem_distancia") or "indisponivel"),
         )
         db.add(viagem)
         db.flush()  # obtém viagem.id antes do commit
+
+        caminho_estavel = PASTA_TEMP / f"viagem_{viagem.id}.png"
+        try:
+            if caminho_salvo != caminho_estavel:
+                caminho_estavel.write_bytes(caminho_salvo.read_bytes())
+                if caminho_salvo.name != caminho_estavel.name:
+                    caminho_salvo.unlink(missing_ok=True)
+        except OSError:
+            caminho_estavel = caminho_salvo
+        viagem.caminho_imagem = str(caminho_estavel)
 
         for item in infracoes_detectadas:
             tipo = str(item["tipo"])
@@ -454,8 +550,8 @@ async def upload_disco(
         db.commit()
         db.refresh(viagem)
         viagem_id = viagem.id
-        # Associa a imagem de debug à viagem (para o laudo PDF nesta sessão)
-        IMAGENS_DEBUG_POR_VIAGEM[viagem_id] = str(caminho_salvo)
+        IMAGENS_DEBUG_POR_VIAGEM[viagem_id] = str(caminho_estavel)
+        _limpar_temp_antigos()
     except SQLAlchemyError:
         db.rollback()
         raise
@@ -466,11 +562,14 @@ async def upload_disco(
             detail=f"Falha ao gravar no banco de dados: {erro}",
         ) from erro
 
-    url_imagem = f"/temp/{caminho_salvo.name}"
+    url_imagem = f"/temp/{Path(IMAGENS_DEBUG_POR_VIAGEM[viagem_id]).name}"
 
     payload: dict[str, Any] = {
         "sucesso": True,
-        "mensagem": "Disco processado, analisado e salvo com sucesso.",
+        "mensagem": (
+            "Disco processado, analisado e salvo com sucesso."
+            + (f" {aviso_qualidade}" if aviso_qualidade else "")
+        ),
         "arquivo": arquivo.filename,
         "placa_veiculo": placa,
         "viagem_id": viagem_id,
@@ -480,18 +579,28 @@ async def upload_disco(
             "raio": resultado.circulo.raio,
         },
         "imagem_desdobrada": {
-            "caminho_local": str(caminho_salvo),
+            "caminho_local": str(Path(IMAGENS_DEBUG_POR_VIAGEM[viagem_id])),
             "url": url_imagem,
             "largura_px": resultado.largura_px,
             "altura_px": resultado.altura_px,
             "eixo_x": "24 horas",
-            "eixo_y": "velocidade 0 a 120 km/h",
+            "eixo_y": "velocidade 0 a 125 km/h",
         },
         "resumo_viagem": resumo,
         "infracoes": infracoes_detectadas,
         "curva_velocidade": curva_tratada,
         "curva_velocidade_amostra": curva_tratada[:AMOSTRAS_CURVA_JSON],
         "curva_velocidade_total_pontos": len(curva_tratada),
+        "alinhamento": {
+            "angulo_zero_graus": round(float(resultado.angulo_zero_graus), 1),
+            "ciclos_odometro": int(resultado.ciclos_odometro),
+            "origem_distancia": resumo.get("origem_distancia", "indisponivel"),
+        },
+        "qualidade": {
+            "confianca": confianca,
+            "nitidez": round(float(resultado.nitidez), 1),
+            "aviso": aviso_qualidade,
+        },
     }
 
     return JSONResponse(content=payload, status_code=status.HTTP_200_OK)

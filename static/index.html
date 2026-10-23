@@ -145,6 +145,11 @@
       margin-bottom: 0.1rem;
     }
 
+    .upload-panel.drag-over {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px var(--blue-glow);
+    }
+
     .file-row {
       display: flex;
       flex-wrap: wrap;
@@ -316,12 +321,24 @@
 
     .metric-grid {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0,1fr));
+      grid-template-columns: repeat(5, minmax(0,1fr));
       gap: 0.75rem;
     }
-    @media (max-width: 900px) { .metric-grid { grid-template-columns: repeat(2,1fr); } }
+    @media (max-width: 1100px) {
+      .metric-grid { grid-template-columns: repeat(3,1fr); }
+    }
+    @media (max-width: 700px) {
+      .metric-grid { grid-template-columns: repeat(2,1fr); }
+    }
 
-    .metric-card {
+    .metric-card .value.conf-ok { color: var(--success); }
+    .metric-card .value.conf-medio { color: var(--warn); }
+    .metric-card .value.conf-baixo { color: var(--danger); }
+
+    #aviso-qualidade {
+      color: var(--warn);
+      font-size: 0.82rem;
+    }
       background: var(--panel);
       border: 1px solid var(--border);
       border-radius: 12px;
@@ -627,7 +644,7 @@
             placeholder="ABC-1234" maxlength="10" required autocomplete="off" />
         </div>
         <div class="col-md">
-          <label for="arquivo" class="form-label">Arquivo do disco (PNG ou JPG)</label>
+          <label for="arquivo" class="form-label">Arquivo do disco (PNG ou JPG) — arraste a foto aqui</label>
           <div class="file-row">
             <input class="form-control" style="max-width:340px" type="file" id="arquivo"
               name="arquivo" accept="image/*" required />
@@ -671,7 +688,13 @@
         <span class="label">&#x26A0; Infrações</span>
         <span class="value" id="metrica-infracoes">—</span>
       </article>
+      <article class="metric-card">
+        <span class="label">&#x1F50D; Confiança da leitura</span>
+        <span class="value destaque" id="metrica-confianca">—</span>
+      </article>
     </div>
+    <p class="small mb-0" id="aviso-qualidade" hidden></p>
+    <p class="small mb-0" id="origem-distancia" style="color:var(--muted)" hidden></p>
 
     <div class="laudo-acoes" id="laudo-acoes" hidden>
       <button type="button" class="btn btn-laudo" id="btn-laudo-resumo">
@@ -787,6 +810,32 @@
 
   let chartVelocidade = null;
   let viagemAtualId   = null;
+  const TAMANHO_MAX_UPLOAD = 20 * 1024 * 1024;
+
+  function validarArquivo(file) {
+    if (!file) return "Selecione a imagem do disco.";
+    if (file.type && !String(file.type).startsWith("image/")) {
+      return "Envie um arquivo de imagem (PNG ou JPG).";
+    }
+    if (file.size > TAMANHO_MAX_UPLOAD) {
+      return "A imagem ultrapassa 20 MB. Envie um PNG ou JPG menor.";
+    }
+    return null;
+  }
+
+  function aplicarArquivo(file) {
+    const erro = validarArquivo(file);
+    if (erro) {
+      setStatus(erro, "erro");
+      mostrarAlertaErro(erro);
+      return false;
+    }
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    inputArquivo.files = dt.files;
+    nomeArquivo.textContent = file.name;
+    return true;
+  }
 
   /* ─── Helpers ─── */
   function extrairMensagemErro(dados, fallback) {
@@ -857,6 +906,15 @@
     document.getElementById("metrica-vmax").textContent       = "—";
     document.getElementById("metrica-vmedia").textContent     = "—";
     document.getElementById("metrica-infracoes").textContent  = "—";
+    const elConfReset = document.getElementById("metrica-confianca");
+    if (elConfReset) {
+      elConfReset.textContent = "—";
+      elConfReset.classList.remove("conf-ok", "conf-medio", "conf-baixo");
+    }
+    const avisoQ = document.getElementById("aviso-qualidade");
+    if (avisoQ) { avisoQ.hidden = true; avisoQ.textContent = ""; }
+    const origemEl = document.getElementById("origem-distancia");
+    if (origemEl) { origemEl.hidden = true; origemEl.textContent = ""; }
     tbodyInfracoes.innerHTML = "";
     document.getElementById("tabela-infracoes").hidden = false;
     semInfracoes.hidden  = true;
@@ -869,22 +927,49 @@
   inputPlaca.addEventListener("input",   () => { inputPlaca.value  = inputPlaca.value.toUpperCase(); });
   filtroPlaca.addEventListener("input",  () => { filtroPlaca.value = filtroPlaca.value.toUpperCase(); });
   inputArquivo.addEventListener("change", () => {
-    nomeArquivo.textContent = inputArquivo.files?.[0]?.name ?? "Nenhum arquivo selecionado";
+    const f = inputArquivo.files?.[0];
+    if (!f) {
+      nomeArquivo.textContent = "Nenhum arquivo selecionado";
+      return;
+    }
+    const erro = validarArquivo(f);
+    if (erro) {
+      inputArquivo.value = "";
+      nomeArquivo.textContent = "Nenhum arquivo selecionado";
+      setStatus(erro, "erro");
+      mostrarAlertaErro(erro);
+      return;
+    }
+    nomeArquivo.textContent = f.name;
   });
 
+  const painelUpload = document.querySelector(".upload-panel");
+  if (painelUpload) {
+    painelUpload.addEventListener("dragover", ev => {
+      ev.preventDefault();
+      painelUpload.classList.add("drag-over");
+    });
+    painelUpload.addEventListener("dragleave", () => {
+      painelUpload.classList.remove("drag-over");
+    });
+    painelUpload.addEventListener("drop", ev => {
+      ev.preventDefault();
+      painelUpload.classList.remove("drag-over");
+      const f = ev.dataTransfer?.files?.[0];
+      if (f) aplicarArquivo(f);
+    });
+  }
+
   /* ─── Gráfico ─── */
-  function atualizarGrafico(curva) {
+  function atualizarGrafico(curva, limiteKmh) {
     graficoIndisponivel.hidden = true;
     chartWrap.hidden = false;
     const labels = curva.map(p => p.hora);
     const dados  = curva.map(p => p.velocidade_kmh);
+    const limite = Number(limiteKmh);
     const ctx = document.getElementById("grafico-velocidade");
     if (chartVelocidade) { chartVelocidade.destroy(); chartVelocidade = null; }
-    chartVelocidade = new Chart(ctx, {
-      type: "line",
-      data: {
-        labels,
-        datasets: [{
+    const datasets = [{
           label: "Velocidade (km/h)",
           data: dados,
           borderColor: "#3b82f6",
@@ -899,21 +984,38 @@
           pointHoverRadius: 4,
           fill: true,
           tension: 0.18,
-        }],
-      },
+        }];
+    if (Number.isFinite(limite) && limite > 0) {
+      datasets.push({
+        label: `Limite ${limite} km/h`,
+        data: labels.map(() => limite),
+        borderColor: "rgba(239,68,68,0.75)",
+        borderDash: [6, 4],
+        borderWidth: 1.5,
+        pointRadius: 0,
+        fill: false,
+        tension: 0,
+      });
+    }
+    chartVelocidade = new Chart(ctx, {
+      type: "line",
+      data: { labels, datasets },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         interaction: { mode: "index", intersect: false },
         plugins: {
-          legend: { display: false },
+          legend: {
+            display: datasets.length > 1,
+            labels: { color: "#94a3b8", boxWidth: 16 },
+          },
           tooltip: {
             backgroundColor: "rgba(7,17,43,0.92)",
             borderColor: "rgba(59,130,246,0.35)",
             borderWidth: 1,
             titleColor: "#94a3b8",
             bodyColor: "#e2e8f0",
-            callbacks: { label: ctx => `${ctx.parsed.y} km/h` },
+            callbacks: { label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y} km/h` },
           },
         },
         scales: {
@@ -924,7 +1026,7 @@
           },
           y: {
             title: { display: true, text: "km/h", color: "#64748b" },
-            min: 0, suggestedMax: 120,
+            min: 0, suggestedMax: 125,
             ticks: { color: "#64748b" },
             grid: { color: "rgba(59,130,246,0.08)" },
           },
@@ -949,6 +1051,39 @@
     const media = resumo.velocidade_media_kmh;
     document.getElementById("metrica-vmedia").textContent    = media == null ? "—" : `${Number(media).toFixed(1)} km/h`;
     document.getElementById("metrica-infracoes").textContent = String(resumo.total_infracoes ?? 0);
+    const conf = resumo.confianca ?? null;
+    const elConf = document.getElementById("metrica-confianca");
+    if (elConf) {
+      elConf.classList.remove("conf-ok", "conf-medio", "conf-baixo");
+      if (conf == null) {
+        elConf.textContent = "—";
+      } else {
+        elConf.textContent = `${Number(conf).toFixed(0)}%`;
+        if (conf >= 80) elConf.classList.add("conf-ok");
+        else if (conf >= 55) elConf.classList.add("conf-medio");
+        else elConf.classList.add("conf-baixo");
+      }
+    }
+    const avisoEl = document.getElementById("aviso-qualidade");
+    if (avisoEl) {
+      const aviso = resumo.aviso_qualidade || "";
+      avisoEl.textContent = aviso;
+      avisoEl.hidden = !aviso;
+    }
+    const origemEl = document.getElementById("origem-distancia");
+    if (origemEl) {
+      const origem = resumo.origem_distancia;
+      if (origem === "odometro") {
+        origemEl.textContent = "Distância lida pelo zigue-zague do odômetro (10 km por ciclo).";
+        origemEl.hidden = false;
+      } else if (origem) {
+        origemEl.textContent = "Distância indisponível — o odômetro gráfico não foi lido nesta foto.";
+        origemEl.hidden = false;
+      } else {
+        origemEl.hidden = true;
+        origemEl.textContent = "";
+      }
+    }
   }
 
   function atualizarInfracoes(infracoes) {
@@ -1106,6 +1241,12 @@
     const arquivo = inputArquivo.files?.[0];
     if (!placa)   { const m="Informe a placa do veículo."; setStatus(m,"erro"); mostrarAlertaErro(m); inputPlaca.focus(); return; }
     if (!arquivo) { const m="Selecione a imagem do disco."; setStatus(m,"erro"); mostrarAlertaErro(m); return; }
+    if (arquivo.size > TAMANHO_MAX_UPLOAD) {
+      const m = "A imagem ultrapassa 20 MB. Envie um PNG ou JPG menor.";
+      setStatus(m, "erro");
+      mostrarAlertaErro(m);
+      return;
+    }
 
     const fd = new FormData();
     fd.append("arquivo", arquivo);
@@ -1123,7 +1264,10 @@
       contextoDetalhe.hidden = true;
       atualizarResumo(d.resumo_viagem);
       atualizarInfracoes(d.infracoes || []);
-      atualizarGrafico(d.curva_velocidade || d.curva_velocidade_amostra || []);
+      atualizarGrafico(
+        d.curva_velocidade || d.curva_velocidade_amostra || [],
+        d.resumo_viagem?.limite_velocidade_kmh ?? 80
+      );
       atualizarImagem(d);
       graficoIndisponivel.hidden = true;
       chartWrap.hidden = false;
