@@ -199,6 +199,10 @@ def _sprint_anexo_a(
     impedimentos: str,
     quadro_inicio: str,
     quadro_fim: str,
+    *,
+    img_inicio: Path | None = None,
+    img_fim: Path | None = None,
+    fonte_quadro: str = "Fonte: os autores (quadro elaborado a partir do backlog M1/M2).",
 ) -> None:
     _titulo(doc, titulo, nivel=2)
     _p(doc,
@@ -212,8 +216,11 @@ def _sprint_anexo_a(
         tamanho=9,
     )
     _figura(
-        doc, None, 0,
-        f"{quadro_inicio}",
+        doc,
+        img_inicio if img_inicio and img_inicio.exists() else None,
+        15.5,
+        quadro_inicio,
+        fonte=fonte_quadro,
         marcador="Inserir aqui o print do quadro de tarefas no início desta sprint.",
     )
     _tabela(
@@ -228,8 +235,11 @@ def _sprint_anexo_a(
         tamanho=10,
     )
     _figura(
-        doc, None, 0,
-        f"{quadro_fim}",
+        doc,
+        img_fim if img_fim and img_fim.exists() else None,
+        15.5,
+        quadro_fim,
+        fonte=fonte_quadro,
         marcador="Inserir aqui o print do quadro de tarefas no encerramento desta sprint.",
     )
 
@@ -245,6 +255,17 @@ def _margens(doc: Document) -> None:
 
 
 def montar_relatorio(saida: Path) -> None:
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "gerar_quadros_sprint", DOCS / "gerar_quadros_sprint.py"
+    )
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    pasta_quadros = DOCS / "figuras" / "quadros_sprint"
+    quadros = mod.gerar_todos(pasta_quadros)
+
     doc = Document()
     _margens(doc)
     doc.core_properties.author = GRUPO
@@ -336,6 +357,8 @@ def montar_relatorio(saida: Path) -> None:
         ),
         quadro_inicio="Figura A1 — Quadro de tarefas no início da Sprint 1",
         quadro_fim="Figura A2 — Quadro de tarefas no encerramento da Sprint 1",
+        img_inicio=quadros["sprint1_inicio"],
+        img_fim=quadros["sprint1_fim"],
     )
 
     _sprint_anexo_a(
@@ -363,16 +386,20 @@ def montar_relatorio(saida: Path) -> None:
         ),
         impedimentos=(
             "Fotos reais grandes deixam a UI em “Processando disco...” por tempo prolongado. "
-            "Burndown não gerado porque o GitHub Projects ainda não foi configurado no repositório."
+            "GitHub Projects do repositório ainda sem board online; o burndown da Figura A5 usa "
+            "as estimativas em horas do backlog desta sprint."
         ),
         quadro_inicio="Figura A3 — Quadro de tarefas no início da Sprint 2",
         quadro_fim="Figura A4 — Quadro de tarefas no encerramento da Sprint 2",
+        img_inicio=quadros["sprint2_inicio"],
+        img_fim=quadros["sprint2_fim"],
     )
     _figura(
-        doc, None, 0,
-        "Figura A5 — Gráfico de burndown da Sprint 2 (se houver na ferramenta de gestão)",
-        marcador="Inserir burndown exportado do GitHub Projects, Trello ou planilha equivalente.",
-        fonte="Fonte: os autores.",
+        doc,
+        quadros["burndown_s2"],
+        15.5,
+        "Figura A5 — Burndown da Sprint 2 (horas restantes × data)",
+        fonte="Fonte: os autores (estimativas do backlog da Sprint 2).",
     )
 
     _titulo(doc, "3.2 Resultado das sprints – incremento funcional")
