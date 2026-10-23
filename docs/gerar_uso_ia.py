@@ -1,6 +1,8 @@
 """
-Gera o documento Word com declaração completa de uso de IA no projeto CronotaScan.
-Inclui histórico de commits com hash, data, autor e descrição.
+Gera a declaração de uso de IA do CronotaScan a partir do histórico real do Git.
+
+Datas no fuso America/Sao_Paulo (UTC-3).
+Commits conferidos em 23/10/2026 contra o repositório jbr121/CRONOTACOGRAFOS.
 """
 
 from __future__ import annotations
@@ -8,399 +10,425 @@ from __future__ import annotations
 from pathlib import Path
 
 from docx import Document
+from docx.enum.section import WD_ORIENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Pt, RGBColor, Cm
-from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from docx.shared import Cm, Pt, RGBColor
 
 
 SAIDA = Path(__file__).resolve().parent / "CronotaScan_Uso_de_IA.docx"
-
 REPOSITORIO = "https://github.com/jbr121/CRONOTACOGRAFOS"
 
-# Histórico completo de commits (hash, data, autor, mensagem, o que fez, envolveu IA?)
+# Ordem cronológica. "ia" segue o que o Git registra (autor Cursor Agent,
+# Co-Authored-By de modelo, ou mensagem explícita de cloud agent).
 COMMITS = [
     {
         "hash": "a30940f",
         "data": "14/08/2026 16:00",
         "autor": "José Eduardo (jbr121)",
+        "branch": "master",
         "mensagem": "Initial commit: CronotaScan PGI Univali",
-        "descricao": "Estrutura inicial do projeto: FastAPI, banco SQLite, front-end SPA e pipeline básico de leitura.",
+        "descricao": (
+            "Estrutura inicial feita pela equipe: FastAPI, SQLite, interface e pipeline básico. "
+            "Não há coautoria de IA neste commit."
+        ),
         "ia": False,
     },
     {
         "hash": "b6438e2",
         "data": "14/08/2026 16:30",
         "autor": "José Eduardo (jbr121)",
+        "branch": "master",
         "mensagem": "Add tutorial for running CronotaScan on Univali lab PCs.",
-        "descricao": "Tutorial passo a passo para rodar o sistema nos computadores do laboratório da UNIVALI.",
+        "descricao": "Tutorial para rodar o sistema nos computadores do laboratório da UNIVALI. Sem coautoria de IA.",
         "ia": False,
     },
     {
         "hash": "23957bb",
         "data": "14/08/2026 16:32",
         "autor": "José Eduardo (jbr121)",
+        "branch": "master",
         "mensagem": "Add ES2 complementary documentation without changing existing PGI plan.",
-        "descricao": "Documentação complementar de Engenharia de Software II sem alterar o plano PGI existente.",
+        "descricao": "Documentação complementar de Engenharia de Software II. Sem coautoria de IA.",
         "ia": False,
     },
     {
         "hash": "b3454bb",
         "data": "25/09/2026 20:48",
-        "autor": "Erick Franzmann Bortoloti + Claude Opus 5.5 (IA)",
+        "autor": "Erick Franzmann Bortoloti",
+        "branch": "master",
         "mensagem": "Integrate v2 disc reader with perspective correction and validation",
         "descricao": (
-            "Reformulação completa do pipeline OpenCV (1125 linhas alteradas): detecção da borda "
-            "do disco como elipse, homografia para correção de perspectiva (elipse → círculo), "
-            "orientação pelo arco verde 12h–24h, autocalibração pelos anéis de 20 km/h impressos, "
-            "leitura da barra de atividade para filtrar minutos parados. "
-            "Co-Authored-By: Claude Opus 5.5 (Anthropic)."
+            "Reescrita do leitor em core/processador_imagem.py (494 linhas adicionadas, 647 removidas), "
+            "mais ajustes em main.py, static/index.html e core/gerador_pdf.py. "
+            "O corpo do commit declara Co-Authored-By: Claude Opus 5.5 (Anthropic). "
+            "Conteúdo: borda do disco como elipse, homografia, arco verde 12h–24h, "
+            "faixas radiais de velocidade e atividade, autocalibração pelos anéis de 20 km/h."
         ),
         "ia": True,
     },
     {
         "hash": "10090b4",
-        "data": "09/10/2026 18:46",
-        "autor": "Cursor Agent (IA) + José Eduardo",
+        "data": "09/10/2026 15:46",
+        "autor": "Cursor Agent; coautor José Eduardo",
+        "branch": "cursor/corrigir-leitura-disco-2731",
         "mensagem": "Corrige rastreamento da curva do disco",
         "descricao": (
-            "Correção de bugs no rastreamento da agulha de velocidade: ajuste das faixas radiais, "
-            "remoção de impressão fixa do disco (linhas tracejadas confundidas com agulha) e "
-            "criação dos primeiros testes unitários automatizados (tests/test_processador_imagem.py, 79 linhas)."
+            "Autor Git: Cursor Agent. Altera core/processador_imagem.py e cria "
+            "tests/test_processador_imagem.py. Esta branch ainda não foi unida ao master."
         ),
         "ia": True,
     },
     {
         "hash": "634c6db",
-        "data": "21/10/2026 11:13",
-        "autor": "Cursor Agent (IA) + José Eduardo",
+        "data": "21/10/2026 08:13",
+        "autor": "Cursor Agent; coautor José Eduardo",
+        "branch": "cursor/corrigir-leitura-disco-2731",
         "mensagem": "Calibra a leitura com discos de gabarito conhecido",
         "descricao": (
-            "Calibração com discos reais: zera minutos parados quando a barra de atividade está visível, "
-            "preserva trechos longos de velocidade constante, reconhece o arco verde mesmo com perspectiva. "
-            "Adição de fixtures (discos sintéticos reto, inclinado e com lacuna) e "
-            "testes automatizados com gabarito JSON (tests/test_fixtures_disco.py)."
+            "Zera minutos parados quando a barra de atividade é visível, preserva trechos "
+            "longos de velocidade constante e ajusta o arco verde. Inclui fixtures sintéticos "
+            "e tests/test_fixtures_disco.py."
         ),
         "ia": True,
     },
     {
         "hash": "920e257",
-        "data": "21/10/2026 11:24",
-        "autor": "Cursor Agent (IA) + José Eduardo",
+        "data": "21/10/2026 08:24",
+        "autor": "Cursor Agent; coautor José Eduardo",
+        "branch": "cursor/corrigir-leitura-disco-2731",
         "mensagem": "Gera laudo PDF dos discos de gabarito",
-        "descricao": "Geração do laudo PDF de auditoria com os resultados dos discos de gabarito para validação do pipeline.",
+        "descricao": "Cria laudos/laudo_discos_gabarito.pdf com o resultado dos discos de gabarito.",
         "ia": True,
     },
     {
         "hash": "b6abd2f",
-        "data": "21/10/2026 11:27",
-        "autor": "Cursor Agent (IA) + José Eduardo",
+        "data": "21/10/2026 08:27",
+        "autor": "Cursor Agent; coautor José Eduardo",
+        "branch": "cursor/corrigir-leitura-disco-2731",
         "mensagem": "Inclui a interface e o dashboard no laudo PDF",
-        "descricao": "Inserção de capturas de tela da interface web e do dashboard de infrações no laudo PDF para evidência visual.",
+        "descricao": "Inclui laudos/fotos/interface.png e laudos/fotos/dashboard.png no laudo PDF.",
         "ia": True,
     },
     {
         "hash": "306196e",
-        "data": "21/10/2026 11:39",
-        "autor": "Cursor Agent (IA) + José Eduardo",
+        "data": "21/10/2026 08:39",
+        "autor": "Cursor Agent; coautor José Eduardo",
+        "branch": "cursor/corrigir-leitura-disco-2731",
         "mensagem": "Gera o PDF com a explicação das telas e funções",
-        "descricao": "Criação do PDF explicativo de todas as telas e funções do sistema CronotaScan (laudos/explicacao_telas_e_funcoes.pdf).",
+        "descricao": "Cria laudos/explicacao_telas_e_funcoes.pdf.",
         "ia": True,
     },
     {
         "hash": "00aac9a",
-        "data": "21/10/2026 11:43",
-        "autor": "Cursor Agent (IA) + José Eduardo",
+        "data": "21/10/2026 08:43",
+        "autor": "Cursor Agent; coautor José Eduardo",
+        "branch": "cursor/corrigir-leitura-disco-2731",
         "mensagem": "Adiciona laudo teste com as imagens do CronotaScan",
-        "descricao": "Laudo de teste completo com imagens do sistema incluídas para apresentação à professora (laudos/laudo_teste.pdf).",
+        "descricao": "Cria laudos/laudo_teste.pdf.",
         "ia": True,
     },
     {
         "hash": "8b438ca",
-        "data": "21/10/2026 11:49",
-        "autor": "Cursor Agent (IA) + José Eduardo",
+        "data": "21/10/2026 08:49",
+        "autor": "Cursor Agent; coautor José Eduardo",
+        "branch": "cursor/corrigir-leitura-disco-2731",
         "mensagem": "Reescreve o laudo teste com a explicação de cada tela e função",
-        "descricao": "Revisão completa do laudo de teste: cada tela e função do sistema descrita individualmente com clareza para a banca.",
+        "descricao": "Reescreve laudos/laudo_teste.pdf descrevendo cada tela e função.",
         "ia": True,
     },
     {
         "hash": "9842a38",
         "data": "23/10/2026 09:17",
-        "autor": "José Eduardo (jbr121)",
+        "autor": "José Eduardo (jbr121), aplicando o Cloud Agent",
+        "branch": "cursor/cloud-agent-1792757833804-ojiac",
         "mensagem": "Cursor: Apply local changes for cloud agent",
-        "descricao": "Sincronização de alterações locais com o agente na nuvem do Cursor.",
-        "ia": False,
+        "descricao": (
+            "Commit feito por José Eduardo com a mensagem padrão do Cursor ao aplicar o agente. "
+            "36 arquivos, +5143/−253. Entra aqui o código de visão, testes e os documentos da disciplina "
+            "gerados com o agente: M1, Lean Inception, Definição do PGI, respostas das atividades de testes, "
+            "relatório e roteiro do M2, mais os scripts docs/gerar_*.py. "
+            "Esta branch sai do commit 23957bb e ainda não está no master."
+        ),
+        "ia": True,
     },
     {
         "hash": "e72dcc8",
-        "data": "23/10/2026 12:20",
-        "autor": "Cursor Agent (IA)",
+        "data": "23/10/2026 09:20",
+        "autor": "Cursor Agent; coautor José Eduardo",
+        "branch": "cursor/declaracao-uso-ia-1680",
         "mensagem": "docs: adiciona documento de declaração de uso de IA (para entrega M2)",
-        "descricao": "Criação deste próprio documento de declaração de uso de IA, conforme solicitado pela professora.",
+        "descricao": "Primeira versão deste documento e do script docs/gerar_uso_ia.py.",
+        "ia": True,
+    },
+    {
+        "hash": "c392737",
+        "data": "23/10/2026 09:23",
+        "autor": "Cursor Agent; coautor José Eduardo",
+        "branch": "cursor/declaracao-uso-ia-1680",
+        "mensagem": "docs: reescreve declaração de uso de IA com tabela completa de commits",
+        "descricao": (
+            "Segunda versão deste documento. Ainda trazia horários em UTC e classificava o commit "
+            "9842a38 como se não tivesse IA."
+        ),
         "ia": True,
     },
 ]
 
 
-def _set_cell_bg(cell, hex_color: str) -> None:
-    tc = cell._tc
-    tcPr = tc.get_or_add_tcPr()
+def _sombrear(celula, hex_cor: str) -> None:
+    tc_pr = celula._tc.get_or_add_tcPr()
     shd = OxmlElement("w:shd")
     shd.set(qn("w:val"), "clear")
     shd.set(qn("w:color"), "auto")
-    shd.set(qn("w:fill"), hex_color)
-    tcPr.append(shd)
+    shd.set(qn("w:fill"), hex_cor)
+    tc_pr.append(shd)
 
 
-def _cell_text(cell, texto: str, negrito: bool = False, tamanho: int = 10, cor: str | None = None) -> None:
-    cell.text = ""
-    p = cell.paragraphs[0]
-    run = p.add_run(texto)
-    run.bold = negrito
-    run.font.size = Pt(tamanho)
-    if cor:
-        r, g, b = int(cor[0:2], 16), int(cor[2:4], 16), int(cor[4:6], 16)
-        run.font.color.rgb = RGBColor(r, g, b)
-    p.paragraph_format.space_after = Pt(0)
+def _texto(celula, texto: str, negrito: bool = False, tamanho: int = 9, cor: str | None = None) -> None:
+    celula.text = ""
+    paragrafo = celula.paragraphs[0]
+    partes = texto.split("\n")
+    for indice, parte in enumerate(partes):
+        run = paragrafo.add_run(parte)
+        run.bold = negrito
+        run.font.size = Pt(tamanho)
+        run.font.name = "Times New Roman"
+        if cor:
+            run.font.color.rgb = RGBColor(int(cor[0:2], 16), int(cor[2:4], 16), int(cor[4:6], 16))
+        if indice < len(partes) - 1:
+            run.add_break()
+    paragrafo.paragraph_format.space_after = Pt(0)
+    paragrafo.paragraph_format.space_before = Pt(0)
 
 
-def paragrafo(doc: Document, texto: str, negrito: bool = False, tamanho: int = 12, centralizado: bool = False) -> None:
+def paragrafo(doc: Document, texto: str, tamanho: int = 12, negrito: bool = False, centro: bool = False) -> None:
     p = doc.add_paragraph()
     run = p.add_run(texto)
     run.bold = negrito
     run.font.size = Pt(tamanho)
+    run.font.name = "Times New Roman"
     p.paragraph_format.space_after = Pt(6)
-    if centralizado:
-        p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    else:
-        p.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.JUSTIFY
+    p.paragraph_format.line_spacing = 1.15
+    p.alignment = WD_ALIGN_PARAGRAPH.CENTER if centro else WD_ALIGN_PARAGRAPH.JUSTIFY
 
 
-def titulo_secao(doc: Document, texto: str) -> None:
-    h = doc.add_heading(texto, level=2)
-    h.paragraph_format.space_before = Pt(14)
-    h.paragraph_format.space_after = Pt(6)
+def secao(doc: Document, texto: str) -> None:
+    titulo = doc.add_heading(texto, level=2)
+    titulo.paragraph_format.space_before = Pt(12)
+    titulo.paragraph_format.space_after = Pt(6)
 
 
-def item_lista(doc: Document, texto: str) -> None:
+def item(doc: Document, texto: str) -> None:
     p = doc.add_paragraph(style="List Bullet")
-    p.add_run(texto).font.size = Pt(12)
-    p.paragraph_format.space_after = Pt(4)
+    run = p.add_run(texto)
+    run.font.size = Pt(12)
+    run.font.name = "Times New Roman"
+    p.paragraph_format.space_after = Pt(3)
 
 
 def main() -> None:
     doc = Document()
-
-    # Margens ABNT
     for section in doc.sections:
-        section.top_margin    = Cm(3)
+        section.orientation = WD_ORIENT.PORTRAIT
+        section.page_width = Cm(21.0)
+        section.page_height = Cm(29.7)
+        section.top_margin = Cm(3)
         section.bottom_margin = Cm(2)
-        section.left_margin   = Cm(3)
-        section.right_margin  = Cm(2)
+        section.left_margin = Cm(3)
+        section.right_margin = Cm(2)
 
-    # ── Capa ────────────────────────────────────────────────────────────────
     titulo = doc.add_heading("Declaração de Uso de Inteligência Artificial", 0)
-    titulo.paragraph_format.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    titulo.paragraph_format.space_after = Pt(4)
+    titulo.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
-    for linha in [
-        "Projeto Integrador — CronotaScan",
-        "Disciplina: Engenharia de Software II",
-        "Universidade do Vale do Itajaí — UNIVALI",
-        "Grupo: José Eduardo, Márcio Fossa, Erick",
-        "Data de entrega: Outubro de 2026",
-    ]:
+    for linha, destaque in (
+        ("Projeto Integrador — CronotaScan", True),
+        ("Disciplina: Engenharia de Software II", False),
+        ("Universidade do Vale do Itajaí — UNIVALI", False),
+        ("Grupo: José Eduardo, Márcio Fossa e Erick Franzmann Bortoloti", True),
+        ("Outubro de 2026", False),
+    ):
         p = doc.add_paragraph()
         p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        r = p.add_run(linha)
-        r.font.size = Pt(12)
-        r.bold = ("Grupo" in linha or "Projeto" in linha)
+        run = p.add_run(linha)
+        run.bold = destaque
+        run.font.size = Pt(12)
+        run.font.name = "Times New Roman"
         p.paragraph_format.space_after = Pt(2)
 
-    paragrafo(doc, f"Repositório GitHub: {REPOSITORIO}", tamanho=11, centralizado=True)
-    doc.add_paragraph()
+    paragrafo(doc, "Repositório: " + REPOSITORIO, tamanho=11, centro=True)
 
-    # ── 1. Apresentação ──────────────────────────────────────────────────────
-    titulo_secao(doc, "1. Apresentação")
-    paragrafo(doc,
-        "Em conformidade com a política de transparência acadêmica da UNIVALI, este documento "
-        "descreve de forma detalhada todos os pontos do projeto CronotaScan em que ferramentas "
-        "de Inteligência Artificial Generativa (IAG) foram utilizadas como suporte ao "
-        "desenvolvimento. Inclui o histórico completo de commits do repositório GitHub, "
-        "identificando quais foram realizados com auxílio da IA e quais foram feitos "
-        "exclusivamente pela equipe."
+    secao(doc, "1. O que este documento declara")
+    paragrafo(
+        doc,
+        "Este texto informa onde a equipe usou inteligência artificial generativa no CronotaScan "
+        "e lista todos os commits existentes no GitHub até 23/10/2026, inclusive os que estão em "
+        "branches e ainda não foram unidos ao master. Os dados foram lidos do Git (autor, data com "
+        "fuso, mensagem e arquivos). Horários abaixo estão no fuso de São Paulo (UTC−3).",
     )
-    paragrafo(doc,
-        "O uso de IA não substituiu o raciocínio crítico da equipe: todas as sugestões geradas "
-        "foram revisadas, adaptadas e validadas pelos integrantes antes de serem incorporadas. "
-        "A equipe se responsabiliza integralmente pelo conteúdo entregue."
+    paragrafo(
+        doc,
+        "A equipe revisou o que o agente escreveu antes de incorporar. A responsabilidade pelo "
+        "conteúdo entregue é do grupo.",
     )
 
-    # ── 2. Ferramenta utilizada ──────────────────────────────────────────────
-    titulo_secao(doc, "2. Ferramenta de IA Utilizada")
-    paragrafo(doc,
-        "Ferramenta: Cursor (https://cursor.com) — ambiente de desenvolvimento integrado com IA."
+    secao(doc, "2. Ferramenta")
+    item(doc, "Ferramenta: Cursor (https://cursor.com), modo Cloud Agent.")
+    item(
+        doc,
+        "O único commit que nomeia o modelo é o b3454bb: Co-Authored-By Claude Opus 5.5 (Anthropic).",
     )
-    item_lista(doc, "Modelo de IA: Claude Opus 5.5 / Claude Sonnet 4.6 (Anthropic)")
-    item_lista(doc, "Modo: Cloud Agent — o assistente lê, edita e faz commit de arquivos do projeto sob supervisão do desenvolvedor")
-    item_lista(doc, 'Identificação nos commits: o autor aparece como "Cursor Agent" ou como "Co-Authored-By: Claude Opus 5.5"')
-    paragrafo(doc,
-        'Cada commit feito com IA é identificado claramente no histórico do GitHub com o autor '
-        '"Cursor Agent" ou com a linha Co-Authored-By. Os commits feitos somente pela equipe '
-        'têm como autor o nome do integrante (jbr121 = José Eduardo, ErickFbort = Erick).'
+    item(
+        doc,
+        "Nos demais commits de agente, o Git registra o autor como Cursor Agent e José Eduardo como "
+        "Co-authored-by. O nome do modelo não foi gravado nesses commits, então ele não é inventado aqui.",
     )
-
-    # ── 3. Histórico de commits ──────────────────────────────────────────────
-    titulo_secao(doc, "3. Histórico Completo de Commits")
-    paragrafo(doc,
-        f"O repositório está em: {REPOSITORIO}\n"
-        "A tabela abaixo lista todos os commits em ordem cronológica. Commits com fundo "
-        "amarelo envolveram o uso de IA; commits com fundo branco foram feitos exclusivamente "
-        "pela equipe."
+    item(
+        doc,
+        "Este arquivo (docs/CronotaScan_Uso_de_IA.docx) e o script docs/gerar_uso_ia.py foram "
+        "redigidos pelo Cloud Agent do Cursor, a pedido da equipe, para a entrega do M2.",
     )
 
-    # Cabeçalho da tabela
+    secao(doc, "3. Commits do repositório")
+    paragrafo(
+        doc,
+        "São 14 commits no total, em quatro linhas de histórico. Fundo amarelo: o Git mostra uso de IA "
+        "ou a mensagem diz que o commit aplica o cloud agent. Fundo branco: commit só da equipe.",
+    )
+    paragrafo(
+        doc,
+        "Márcio Fossa integra o grupo e assina esta declaração. Até esta data ele não aparece como "
+        "autor de commit no repositório.",
+    )
+
+    colunas = ("Hash", "Data (São Paulo) e autor", "Branch e mensagem", "O que o commit contém")
+    larguras = (Cm(2.0), Cm(3.6), Cm(4.2), Cm(6.2))
     tabela = doc.add_table(rows=1, cols=4)
     tabela.style = "Table Grid"
     tabela.autofit = False
-
-    # Larguras das colunas
-    larguras = [Cm(2.2), Cm(3.5), Cm(3.5), Cm(8.8)]
-    for i, col in enumerate(tabela.columns):
-        for cell in col.cells:
-            cell.width = larguras[i]
-
-    cab = tabela.rows[0].cells
-    for idx, titulo_col in enumerate(["Hash", "Data / Autor", "Mensagem do Commit", "O que foi feito"]):
-        _set_cell_bg(cab[idx], "1F3864")
-        _cell_text(cab[idx], titulo_col, negrito=True, tamanho=10, cor="FFFFFF")
+    cabecalho = tabela.rows[0].cells
+    for indice, titulo_coluna in enumerate(colunas):
+        cabecalho[indice].width = larguras[indice]
+        _sombrear(cabecalho[indice], "1F3864")
+        _texto(cabecalho[indice], titulo_coluna, negrito=True, tamanho=9, cor="FFFFFF")
 
     for commit in COMMITS:
-        linha = tabela.add_row().cells
-        bg = "FFF2CC" if commit["ia"] else "FFFFFF"
-        _set_cell_bg(linha[0], bg)
-        _set_cell_bg(linha[1], bg)
-        _set_cell_bg(linha[2], bg)
-        _set_cell_bg(linha[3], bg)
-        _cell_text(linha[0], commit["hash"], tamanho=9)
-        _cell_text(linha[1], f"{commit['data']}\n{commit['autor']}", tamanho=9)
-        _cell_text(linha[2], commit["mensagem"], negrito=True, tamanho=9)
-        _cell_text(linha[3], commit["descricao"], tamanho=9)
+        celulas = tabela.add_row().cells
+        fundo = "FFF2CC" if commit["ia"] else "FFFFFF"
+        valores = (
+            commit["hash"],
+            commit["data"] + "\n" + commit["autor"],
+            commit["branch"] + "\n" + commit["mensagem"],
+            commit["descricao"],
+        )
+        for indice, valor in enumerate(valores):
+            celulas[indice].width = larguras[indice]
+            _sombrear(celulas[indice], fundo)
+            _texto(celulas[indice], valor, negrito=(indice == 0), tamanho=8)
 
     doc.add_paragraph()
-    p = doc.add_paragraph()
-    r = p.add_run("Legenda: ")
-    r.bold = True
-    r.font.size = Pt(10)
-    p.add_run("Fundo ").font.size = Pt(10)
-    r2 = p.add_run("amarelo")
-    r2.font.size = Pt(10)
-    r2.bold = True
-    p.add_run(" = commit com auxílio de IA.  Fundo ").font.size = Pt(10)
-    r3 = p.add_run("branco")
-    r3.font.size = Pt(10)
-    r3.bold = True
-    p.add_run(" = commit somente da equipe.").font.size = Pt(10)
-
-    doc.add_paragraph()
-
-    # ── 4. Detalhamento por área ─────────────────────────────────────────────
-    titulo_secao(doc, "4. Detalhamento do Uso de IA por Área do Projeto")
-
-    doc.add_heading("4.1 Pipeline de Visão Computacional (core/processador_imagem.py)", level=3)
-    paragrafo(doc,
-        "A parte mais complexa do sistema é o pipeline OpenCV que transforma a foto do disco "
-        "analógico em uma curva de velocidade × tempo. A IA foi utilizada para:"
-    )
-    item_lista(doc, "Propor o uso de cv2.fitEllipse para detectar a borda do disco mesmo em fotos inclinadas.")
-    item_lista(doc, "Desenvolver a homografia que corrige a perspectiva da foto (elipse → círculo perfeito).")
-    item_lista(doc, "Sugerir cv2.warpPolar para o desdobramento polar (disco circular → imagem retangular).")
-    item_lista(doc, "Criar a lógica de máscara HSV para isolar o papel branco do disco e ignorar o mousepad colorido de fundo.")
-    item_lista(doc, "Implementar a autocalibração pelos anéis tracejados impressos (20, 40, 60, 80, 100 km/h).")
-    item_lista(doc, "Criar a detecção da barra de atividade para ler velocidade somente nos minutos em que o caminhão está em movimento.")
-    item_lista(doc, "Implementar a orientação pelo arco verde 12h–24h impresso na borda do disco.")
-    paragrafo(doc,
-        "Commits relacionados: b3454bb (25/09/2026), 10090b4 (09/10/2026), 634c6db (21/10/2026). "
-        "Em todos, a equipe revisou o código gerado, ajustou os parâmetros com fotos reais dos "
-        "discos e validou os resultados manualmente."
+    paragrafo(
+        doc,
+        "Legenda: fundo amarelo = commit com IA registrada no Git ou com a mensagem de aplicação "
+        "do cloud agent. Fundo branco = commit somente da equipe.",
+        tamanho=11,
     )
 
-    doc.add_heading("4.2 Testes Automatizados", level=3)
-    paragrafo(doc,
-        "Os testes unitários e de fixtures foram elaborados com suporte da IA:"
+    secao(doc, "4. Onde a IA entrou, com o commit correspondente")
+
+    doc.add_heading("4.1 Leitura do disco", level=3)
+    item(
+        doc,
+        "b3454bb (master, 25/09/2026): leitor v2 com elipse, homografia, arco verde e autocalibração. "
+        "Modelo declarado: Claude Opus 5.5. Autor humano: Erick.",
     )
-    item_lista(doc, "tests/test_processador_imagem.py — testes do pipeline principal (commit 10090b4).")
-    item_lista(doc, "tests/discos_sinteticos.py — geração de discos sintéticos com OpenCV (reto, inclinado, com lacuna).")
-    item_lista(doc, "tests/test_fixtures_disco.py — comparação de resultados com gabarito JSON (commit 634c6db).")
-    paragrafo(doc,
-        "A equipe definiu os cenários e critérios de aceite; a IA traduziu esses cenários em código."
+    item(
+        doc,
+        "10090b4 e 634c6db (branch cursor/corrigir-leitura-disco-2731): correção do rastreamento da "
+        "curva e calibração com discos de gabarito. Autor Git: Cursor Agent.",
     )
 
-    doc.add_heading("4.3 Laudos e PDFs", level=3)
-    item_lista(doc, "laudos/laudo_discos_gabarito.pdf — laudo dos discos de gabarito (commit 920e257).")
-    item_lista(doc, "laudos/explicacao_telas_e_funcoes.pdf — PDF com todas as telas e funções (commit 306196e).")
-    item_lista(doc, "laudos/laudo_teste.pdf — laudo completo com imagens do sistema (commits 00aac9a e 8b438ca).")
-
-    doc.add_heading("4.4 Documentação Acadêmica", level=3)
-    paragrafo(doc,
-        "A IA auxiliou na redação e formatação dos seguintes documentos entregues na disciplina:"
+    doc.add_heading("4.2 Testes", level=3)
+    item(doc, "10090b4 cria tests/test_processador_imagem.py.")
+    item(doc, "634c6db cria os discos sintéticos, o gabarito JSON e tests/test_fixtures_disco.py.")
+    item(
+        doc,
+        "9842a38 cria tests/test_pipeline.py e tests/test_analisador.py na branch do cloud agent.",
     )
-    item_lista(doc, "M1 — Visão, Arquitetura e Planejamento do CronotaScan (Word + diagramas UML em PNG).")
-    item_lista(doc, "Lean Inception — Visão do produto, É/Não é / Faz/Não faz e 3 objetivos principais.")
-    item_lista(doc, "Definição do Projeto Integrador (PGI) — escopo, cronograma e riscos.")
-    item_lista(doc, "Atividade de Testes (partes 1 e 2) — respostas às questões teóricas em linguagem simples.")
-    item_lista(doc, "M2 — Relatório de progresso e roteiro de apresentação oral.")
-    item_lista(doc, "Este documento — Declaração de Uso de IA (commit e72dcc8, 23/10/2026).")
 
-    # ── 5. O que NÃO foi feito pela IA ──────────────────────────────────────
-    titulo_secao(doc, "5. O Que NÃO Foi Feito pela IA")
-    item_lista(doc, "Coleta e digitalização das fotos reais de discos de cronotacógrafo.")
-    item_lista(doc, "Definição dos requisitos funcionais junto ao orientador/professor.")
-    item_lista(doc, "Validação dos resultados do pipeline contra laudos reais (comparação manual de km e velocidade).")
-    item_lista(doc, "Decisões de arquitetura: escolha de FastAPI, SQLite, SPA HTML/JS puro.")
-    item_lista(doc, "Apresentação oral do projeto para a banca.")
-    item_lista(doc, "Estrutura inicial do projeto (commit a30940f — Initial commit, feito exclusivamente pela equipe).")
+    doc.add_heading("4.3 Laudos em PDF", level=3)
+    item(doc, "920e257, b6abd2f, 306196e, 00aac9a e 8b438ca geram e reescrevem os PDFs em laudos/.")
+    paragrafo(
+        doc,
+        "Esses arquivos estão na branch cursor/corrigir-leitura-disco-2731. Eles não estão no master.",
+    )
 
-    # ── 6. Resumo estatístico ────────────────────────────────────────────────
-    titulo_secao(doc, "6. Resumo Estatístico")
+    doc.add_heading("4.4 Documentos da disciplina", level=3)
+    paragrafo(
+        doc,
+        "Os documentos pedidos na disciplina foram gerados com o Cloud Agent e entraram no Git no "
+        "commit 9842a38, branch cursor/cloud-agent-1792757833804-ojiac, em 23/10/2026 às 09:17 "
+        "(horário de São Paulo). Não estão no master.",
+    )
+    item(doc, "docs/M1_Visao_Arquitetura_CronotaScan.docx e docs/gerar_m1_docx.py, com as figuras em docs/figuras/.")
+    item(doc, "docs/Lean_Inception_CronotaScan.docx e docs/gerar_lean_inception.py.")
+    item(doc, "docs/Definicao_Projeto_Integrador_CronotaScan.docx e docs/gerar_definicao_pgi.py.")
+    item(doc, "docs/Respostas_Atividade_Testes.docx, a versão em linguagem simples e a parte 2, com os scripts gerar_respostas_testes.py.")
+    item(doc, "docs/M2_Relatorio_CronotaScan.docx, docs/M2_Roteiro_Apresentacao_CronotaScan.docx e docs/gerar_m2_relatorio.py.")
+    item(doc, "Este documento: commits e72dcc8 e c392737, branch cursor/declaracao-uso-ia-1680.")
 
+    secao(doc, "5. O que a equipe fez sem IA")
+    item(doc, "Commits a30940f, b6438e2 e 23957bb: base do projeto, tutorial de laboratório e documentação de ES2.")
+    item(doc, "Escolha da arquitetura (FastAPI, SQLite e página única) e dos requisitos com o professor.")
+    item(doc, "Fotos reais dos discos e a conferência manual do que o programa leu.")
+    item(doc, "Apresentação oral. Márcio Fossa participa do grupo mesmo sem commit no GitHub.")
+
+    secao(doc, "6. Números")
     total = len(COMMITS)
-    com_ia = sum(1 for c in COMMITS if c["ia"])
+    com_ia = sum(1 for commit in COMMITS if commit["ia"])
     sem_ia = total - com_ia
-
-    tabela2 = doc.add_table(rows=4, cols=2)
-    tabela2.style = "Table Grid"
-    dados = [
-        ("Total de commits no repositório", str(total)),
-        ("Commits com auxílio de IA (fundo amarelo)", str(com_ia)),
-        ("Commits somente da equipe (fundo branco)", str(sem_ia)),
-        ("Repositório GitHub", REPOSITORIO),
-    ]
-    for i, (chave, valor) in enumerate(dados):
-        linha = tabela2.rows[i].cells
-        _cell_text(linha[0], chave, negrito=True, tamanho=11)
-        _cell_text(linha[1], valor, tamanho=11)
-
-    doc.add_paragraph()
-
-    # ── 7. Assinaturas ───────────────────────────────────────────────────────
-    titulo_secao(doc, "7. Declaração e Assinaturas")
-    paragrafo(doc,
-        "Os abaixo assinados declaram que as informações acima são verdadeiras e que "
-        "o uso da IA foi realizado de forma ética, transparente e sob supervisão da equipe, "
-        "em conformidade com as diretrizes da UNIVALI para projetos integradores."
+    resumo = doc.add_table(rows=5, cols=2)
+    resumo.style = "Table Grid"
+    linhas_resumo = (
+        ("Commits no GitHub até 23/10/2026", str(total)),
+        ("Com IA registrada ou aplicação do cloud agent", str(com_ia)),
+        ("Somente da equipe", str(sem_ia)),
+        ("Branches além do master", "cursor/corrigir-leitura-disco-2731; cursor/cloud-agent-1792757833804-ojiac; cursor/declaracao-uso-ia-1680"),
+        ("Repositório", REPOSITORIO),
     )
+    for indice, (chave, valor) in enumerate(linhas_resumo):
+        _texto(resumo.rows[indice].cells[0], chave, negrito=True, tamanho=10)
+        _texto(resumo.rows[indice].cells[1], valor, tamanho=10)
 
     doc.add_paragraph()
-    for nome in ["José Eduardo", "Márcio Fossa", "Erick Franzmann Bortoloti"]:
+    secao(doc, "7. Declaração")
+    paragrafo(
+        doc,
+        "A correção desta declaração (datas no horário de São Paulo, branch de cada commit e o "
+        "9842a38 marcado como uso de IA) entra no commit seguinte ao c392737, com a mensagem "
+        "docs: corrige datas, branches e classificação de IA na declaração.",
+    )
+    paragrafo(
+        doc,
+        "Declaramos que a tabela acima corresponde ao histórico do GitHub na data desta entrega "
+        "e que o uso de IA foi supervisionado pela equipe.",
+    )
+    doc.add_paragraph()
+    for nome in ("José Eduardo", "Márcio Fossa", "Erick Franzmann Bortoloti"):
         p = doc.add_paragraph()
-        p.add_run("_" * 55).font.size = Pt(11)
-        doc.add_paragraph().add_run(nome).font.size = Pt(11)
+        run = p.add_run("_" * 48)
+        run.font.size = Pt(12)
+        run.font.name = "Times New Roman"
+        p2 = doc.add_paragraph()
+        run2 = p2.add_run(nome)
+        run2.font.size = Pt(12)
+        run2.font.name = "Times New Roman"
         doc.add_paragraph()
 
     doc.save(str(SAIDA))
     print(f"Documento salvo em: {SAIDA}")
-    print(f"Commits listados: {total}  |  Com IA: {com_ia}  |  Sem IA: {sem_ia}")
+    print(f"Commits: {total} | com IA: {com_ia} | sem IA: {sem_ia}")
 
 
 if __name__ == "__main__":
