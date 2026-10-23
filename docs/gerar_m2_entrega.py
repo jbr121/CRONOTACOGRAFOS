@@ -717,6 +717,9 @@ def _empacotar_m2(docx_relatorio: Path) -> None:
         zf.write(docx_relatorio, docx_relatorio.name)
         if pdf.exists():
             zf.write(pdf, pdf.name)
+        resumo = DOCS / "M2_Resumo_Para_Apresentacao.pdf"
+        if resumo.exists():
+            zf.write(resumo, resumo.name)
         if pasta_quadros.is_dir():
             for png in sorted(pasta_quadros.glob("*.png")):
                 zf.write(png, f"quadros_sprint/{png.name}")
@@ -1040,12 +1043,23 @@ def montar_slides(saida: Path) -> None:
 
 
 if __name__ == "__main__":
+    import importlib.util
+
     relatorio = DOCS / "M2_Relatorio_CronotaScan.docx"
     roteiro = DOCS / "M2_Roteiro_Apresentacao_CronotaScan.docx"
     slides = DOCS / "M2_Apresentacao_CronotaScan.pptx"
     montar_relatorio(relatorio)
     montar_roteiro(roteiro)
     montar_slides(slides)
+    spec = importlib.util.spec_from_file_location(
+        "gerar_resumo_apresentacao_m2", DOCS / "gerar_resumo_apresentacao_m2.py"
+    )
+    mod_resumo = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod_resumo)
+    resumo_pdf = mod_resumo.gerar()
+    _empacotar_m2(relatorio)
     print(relatorio)
     print(roteiro)
     print(slides)
+    print(resumo_pdf)
