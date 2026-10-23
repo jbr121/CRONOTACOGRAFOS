@@ -9,6 +9,8 @@ Datas no fuso America/Sao_Paulo. Entrega alinhada ao prazo do enunciado: 22/10/2
 
 from __future__ import annotations
 
+import zipfile
+from io import BytesIO
 from pathlib import Path
 
 from docx import Document
@@ -177,7 +179,17 @@ def _figura(
         p.paragraph_format.space_after = Pt(4)
         p.paragraph_format.keep_together = True
         run = p.add_run()
-        run.add_picture(str(caminho), width=Cm(largura_cm))
+        try:
+            from PIL import Image
+
+            with Image.open(caminho) as im:
+                rgb = im.convert("RGB") if im.mode in ("RGBA", "P", "LA") else im
+                buf = BytesIO()
+                rgb.save(buf, format="JPEG", quality=92)
+                buf.seek(0)
+            run.add_picture(buf, width=Cm(largura_cm))
+        except Exception:
+            run.add_picture(str(caminho), width=Cm(largura_cm))
     elif marcador:
         _marcador_print(doc, marcador)
 
@@ -693,6 +705,29 @@ def montar_relatorio(saida: Path) -> None:
 
     saida.parent.mkdir(parents=True, exist_ok=True)
     doc.save(str(saida))
+    _empacotar_m2(saida)
+
+
+def _empacotar_m2(docx_relatorio: Path) -> None:
+    """ZIP com relatório + PDF + PNGs dos quadros (fallback se o Word não mostrar figuras)."""
+    pasta_quadros = DOCS / "figuras" / "quadros_sprint"
+    pdf = docx_relatorio.with_suffix(".pdf")
+    zip_path = DOCS / "M2_pacote_entrega.zip"
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.write(docx_relatorio, docx_relatorio.name)
+        if pdf.exists():
+            zf.write(pdf, pdf.name)
+        if pasta_quadros.is_dir():
+            for png in sorted(pasta_quadros.glob("*.png")):
+                zf.write(png, f"quadros_sprint/{png.name}")
+        readme = (
+            "CronotaScan — pacote M2\n\n"
+            "1) Abra M2_Relatorio_CronotaScan.docx no Word (desktop), não no navegador.\n"
+            "2) Se alguma figura A1–A5 aparecer vazia, use Inserir > Imagens e os arquivos "
+            "em quadros_sprint/ (nomes sprint1_inicio, sprint1_fim, etc.).\n"
+            "3) Branch no GitHub: cursor/entrega-m2-2731\n"
+        )
+        zf.writestr("LEIA-ME.txt", readme)
 
 
 def montar_roteiro(saida: Path) -> None:
