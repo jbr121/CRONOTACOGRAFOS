@@ -1,0 +1,108 @@
+@let l = leitura();
+
+<div class="resultado">
+  <div class="resultado-topo">
+    <div>
+      <div class="resultado-titulo">Viagem #{{ l.viagemId }} · <span class="placa-chip">{{ l.placa }}</span></div>
+      @if (l.dataProcessamento) {
+        <div class="texto-suave">Processada em {{ l.dataProcessamento }}</div>
+      }
+    </div>
+    <div class="resultado-acoes">
+      @if (qualidade(); as q) {
+        <span class="selo-qualidade" [class]="'selo-qualidade ' + q.classe"
+              title="Nota de alinhamento da escala impressa: {{ q.nota | number: '1.2-2' }} (≥ 2 é confiável)">
+          {{ q.rotulo }}
+        </span>
+      }
+      <button type="button" class="btn btn-laudo" (click)="abrirPdf()">📄 Gerar laudo PDF</button>
+    </div>
+  </div>
+
+  @for (aviso of l.avisos; track aviso) {
+    <app-alerta tipo="aviso" titulo="Atenção">{{ aviso }}</app-alerta>
+  }
+
+  <div class="metric-grid">
+    <article class="metric-card">
+      <span class="label">📍 Distância estimada</span>
+      <span class="value">{{ l.resumo.distancia_estimada_km | number: '1.1-1' }} km</span>
+    </article>
+    <article class="metric-card">
+      <span class="label">⚡ Velocidade máxima</span>
+      <span class="value destaque">{{ l.resumo.velocidade_maxima_kmh | number: '1.1-1' }} km/h</span>
+    </article>
+    <article class="metric-card">
+      <span class="label">📊 Velocidade média</span>
+      <span class="value">
+        @if (l.resumo.velocidade_media_kmh != null) {
+          {{ l.resumo.velocidade_media_kmh | number: '1.1-1' }} km/h
+        } @else {
+          —
+        }
+      </span>
+    </article>
+    <article class="metric-card">
+      <span class="label">⚠ Infrações</span>
+      <span class="value">{{ l.resumo.total_infracoes }}</span>
+      <span class="metric-sub">{{ totalExcessos() }} excesso(s) · {{ totalParadas() }} parada(s)</span>
+    </article>
+  </div>
+
+  @if (l.curva?.length || l.imagemUrl) {
+    <div class="layout-main">
+      <section class="panel">
+        <h2>Curva de velocidade</h2>
+        @if (l.curva?.length) {
+          <app-grafico-velocidade [curva]="l.curva!" [limite]="l.resumo.limite_velocidade_kmh" />
+          <p class="texto-suave legenda">Linha tracejada vermelha: limite de {{ l.resumo.limite_velocidade_kmh }} km/h.</p>
+        }
+      </section>
+      <section class="panel">
+        <h2>Disco desdobrado</h2>
+        @if (l.imagemUrl) {
+          <div class="debug-img-wrap">
+            <img [src]="l.imagemUrl" alt="Disco retificado e desdobrado de 00h a 24h" />
+          </div>
+          <p class="texto-suave legenda">
+            Da esquerda (00h) para a direita (24h). No topo, a borda do disco; abaixo, a faixa de
+            velocidade e a barra de atividade. Se os anéis estiverem ondulados, tire outra foto.
+          </p>
+        }
+      </section>
+    </div>
+  } @else {
+    <app-alerta tipo="info">
+      A curva de velocidade e a imagem desdobrada ficam disponíveis apenas logo após o upload.
+    </app-alerta>
+  }
+
+  <section class="panel">
+    <h2>Infrações e alertas</h2>
+    @if (linhas().length) {
+      <div class="tabela-rolagem">
+        <table class="tabela-infracoes">
+          <thead>
+            <tr><th>Tipo</th><th>Início</th><th>Fim</th><th>Detalhe</th></tr>
+          </thead>
+          <tbody>
+            @for (linha of linhas(); track $index) {
+              <tr [class]="linha.excesso ? 'infracao-excesso' : 'infracao-parada'">
+                <td>
+                  <span class="badge-tipo" [class]="linha.excesso ? 'badge-tipo badge-excesso' : 'badge-tipo badge-parada'">
+                    {{ linha.excesso ? 'Excesso' : 'Parada' }}
+                  </span>
+                </td>
+                <td>{{ linha.inicio }}</td>
+                <td>{{ linha.fim }}</td>
+                <td>{{ linha.detalhe }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    } @else {
+      <p class="vazio vazio-ok">✅ Nenhuma infração detectada nesta viagem.</p>
+    }
+  </section>
+</div>

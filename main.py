@@ -30,7 +30,8 @@ from core.processador_imagem import (
 RAIZ_PROJETO = Path(__file__).resolve().parent
 PASTA_TEMP = RAIZ_PROJETO / "temp"
 PASTA_STATIC = RAIZ_PROJETO / "static"
-ARQUIVO_INDEX = PASTA_STATIC / "index.html"
+# Build do front Angular (código-fonte em frontend/, gerado com `npm run build`)
+ARQUIVO_INDEX = PASTA_STATIC / "app" / "index.html"
 
 PASTA_TEMP.mkdir(parents=True, exist_ok=True)
 PASTA_STATIC.mkdir(parents=True, exist_ok=True)
@@ -144,9 +145,10 @@ async def raiz() -> FileResponse:
     if not ARQUIVO_INDEX.is_file():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Arquivo static/index.html não encontrado.",
+            detail="Front não encontrado em static/app/. Rode `npm run build` na pasta frontend/.",
         )
-    return FileResponse(ARQUIVO_INDEX, media_type="text/html")
+    # no-cache: o navegador sempre confere se há build novo (JS/CSS têm hash no nome)
+    return FileResponse(ARQUIVO_INDEX, media_type="text/html", headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/api/health")
@@ -504,6 +506,12 @@ async def upload_disco(
 
 app.mount("/temp", StaticFiles(directory=str(PASTA_TEMP)), name="temp")
 app.mount("/static", StaticFiles(directory=str(PASTA_STATIC)), name="static")
+# Front Angular na raiz (por último, para não encobrir a API): /, /main-*.js, /styles-*.css
+app.mount(
+    "/",
+    StaticFiles(directory=str(ARQUIVO_INDEX.parent), html=True, check_dir=False),
+    name="app",
+)
 
 
 if __name__ == "__main__":

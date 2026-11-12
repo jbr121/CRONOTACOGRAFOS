@@ -1,0 +1,65 @@
+<section class="panel">
+  <h2>Histórico de leituras</h2>
+
+  <form class="filtro" (submit)="$event.preventDefault(); filtrar()">
+    <input class="campo-texto placa-input" type="text" maxlength="8" autocomplete="off"
+           placeholder="Filtrar por placa" aria-label="Filtrar por placa"
+           [value]="filtro()" (input)="aoDigitarFiltro($event)" />
+    <button type="submit" class="btn btn-secundario">🔍 Filtrar</button>
+    @if (filtro()) {
+      <button type="button" class="btn btn-secundario" (click)="limparFiltro()">✕ Limpar</button>
+    }
+    <a routerLink="/" class="btn btn-principal btn-direita">＋ Novo escaneamento</a>
+  </form>
+
+  @if (erro()) {
+    <app-alerta tipo="erro">{{ erro() }}</app-alerta>
+  } @else if (carregando()) {
+    <p class="vazio"><span class="spinner"></span> Carregando…</p>
+  } @else if (!linhas().length) {
+    <div class="vazio-bloco">
+      <p>{{ filtro() ? 'Nenhuma leitura para essa placa.' : 'Nenhuma leitura ainda.' }}</p>
+      <a routerLink="/" class="btn btn-principal">Fazer o primeiro escaneamento</a>
+    </div>
+  } @else {
+    <div class="tabela-rolagem">
+      <table class="tabela-historico">
+        <thead>
+          <tr>
+            <th class="col-sev"><span class="sr-only">Severidade</span></th>
+            <th>Data / hora</th>
+            <th>Placa</th>
+            <th>Distância</th>
+            <th>Vel. máx.</th>
+            <th>Situação</th>
+            <th><span class="sr-only">Ações</span></th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (v of linhas(); track v.id) {
+            <tr>
+              <td class="col-sev"><span class="sev-bar" [class]="'sev-bar sev-' + v.severidade"></span></td>
+              <td>
+                <div class="data-dia">{{ v.data.dia }}</div>
+                <div class="data-hora">{{ v.data.hora }}</div>
+              </td>
+              <td><span class="placa-chip">{{ v.placa_veiculo }}</span></td>
+              <td class="texto-forte">{{ v.distancia_total_km | number: '1.1-1' }} km</td>
+              <td class="texto-forte" [class]="'texto-forte ' + v.classeVel">{{ v.velocidade_maxima | number: '1.1-1' }} km/h</td>
+              <td>
+                <span class="badge-inf" [class]="'badge-inf badge-inf-' + v.severidade">
+                  {{ v.total_infracoes === 0 ? '✓ Sem infrações' : '⚠ ' + v.total_infracoes }}
+                </span>
+              </td>
+              <td class="acoes">
+                <a class="btn btn-secundario btn-pequeno" [routerLink]="['/viagens', v.id]">Detalhes</a>
+                <button type="button" class="btn btn-laudo btn-pequeno" (click)="abrirPdf(v.id)">📄 PDF</button>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    <p class="texto-suave legenda">{{ linhas().length }} leitura(s).</p>
+  }
+</section>

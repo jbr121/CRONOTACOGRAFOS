@@ -1,0 +1,103 @@
+@if (atual.leitura(); as leitura) {
+  <div class="barra-topo">
+    <app-alerta tipo="sucesso">
+      Disco processado e salvo no histórico.
+      <a routerLink="/historico">Ver histórico</a>
+    </app-alerta>
+    <button type="button" class="btn btn-secundario" (click)="novoEscaneamento()">↺ Novo escaneamento</button>
+  </div>
+  <app-resultado-leitura [leitura]="leitura" />
+} @else {
+  <div class="grade-escanear">
+    <section class="panel">
+      <h2>Novo escaneamento</h2>
+
+      <form class="form-escanear" (submit)="$event.preventDefault(); enviar()" novalidate>
+        <div class="campo">
+          <label for="placa">1. Placa do veículo</label>
+          <input id="placa" class="campo-texto placa-input" type="text" maxlength="8" autocomplete="off"
+                 placeholder="ABC-1234" [value]="placa()" (input)="aoDigitarPlaca($event)"
+                 (blur)="placaTocada.set(true)" [disabled]="ocupado()"
+                 [class.invalido]="placaTocada() && !placaValida()" aria-describedby="placa-ajuda" />
+          <small id="placa-ajuda" [class.texto-erro]="placaTocada() && !placaValida()">
+            Formato antigo (ABC-1234) ou Mercosul (ABC1D23).
+          </small>
+        </div>
+
+        <div class="campo">
+          <span class="rotulo">2. Foto do disco</span>
+          @if (arquivo(); as a) {
+            <div class="previa">
+              <img [src]="previa()" alt="Prévia da foto selecionada" />
+              <div class="previa-info">
+                <strong>{{ a.name }}</strong>
+                <span class="texto-suave">{{ tamanhoLegivel(a.size) }}</span>
+                <button type="button" class="btn btn-secundario btn-pequeno" (click)="removerArquivo()"
+                        [disabled]="ocupado()">Trocar foto</button>
+              </div>
+            </div>
+          } @else {
+            <label class="dropzone" [class.ativa]="arrastando()"
+                   (dragover)="aoArrastar($event, true)" (dragleave)="aoArrastar($event, false)"
+                   (drop)="aoSoltar($event)">
+              <input type="file" accept="image/*" (change)="aoEscolherArquivo($event)" hidden />
+              <span class="dropzone-icone" aria-hidden="true">⬆</span>
+              <span><strong>Arraste a foto aqui</strong> ou clique para escolher</span>
+              <span class="texto-suave">JPG ou PNG, até 20 MB</span>
+            </label>
+          }
+        </div>
+
+        @if (erro()) {
+          <app-alerta tipo="erro" titulo="Não foi possível analisar">{{ erro() }}</app-alerta>
+        }
+
+        <button type="submit" class="btn btn-principal" [disabled]="!podeEnviar()">
+          @switch (etapa()) {
+            @case ('enviando') { <span class="spinner"></span> Enviando {{ progresso() }}% }
+            @case ('processando') { <span class="spinner"></span> Analisando o disco… }
+            @default { ▶ Analisar disco }
+          }
+        </button>
+
+        @if (etapa() === 'enviando') {
+          <div class="progresso" role="progressbar" [attr.aria-valuenow]="progresso()" aria-valuemin="0" aria-valuemax="100">
+            <div class="progresso-barra" [style.width.%]="progresso()"></div>
+          </div>
+        }
+      </form>
+    </section>
+
+    <aside class="panel dicas">
+      <button type="button" class="dicas-titulo" (click)="dicasAbertas.set(!dicasAbertas())"
+              [attr.aria-expanded]="dicasAbertas()">
+        <h2>Como fotografar o disco</h2>
+        <span aria-hidden="true">{{ dicasAbertas() ? '−' : '+' }}</span>
+      </button>
+      @if (dicasAbertas()) {
+        <ul class="lista-dicas">
+          <li><strong>Fundo escuro</strong> — evite mesa branca ou madeira clara; a borda do papel precisa aparecer.</li>
+          <li><strong>De cima</strong> — celular paralelo ao disco, sem inclinar.</li>
+          <li><strong>Disco inteiro</strong> na foto, sem cortar a borda.</li>
+          <li><strong>Sem reflexo nem sombra</strong> — luz difusa, longe da janela.</li>
+          <li><strong>Arquivo original</strong> — não use a foto reenviada pelo WhatsApp (perde qualidade).</li>
+        </ul>
+        <p class="texto-suave">
+          Modelo suportado: disco diário <strong>VDO 125 km/h</strong>. Fotos fora desse padrão são recusadas
+          com uma explicação, para não gerar laudo errado.
+        </p>
+      }
+    </aside>
+  </div>
+}
+
+@if (etapa() === 'processando') {
+  <div class="overlay" role="status" aria-live="polite">
+    <div class="overlay-caixa">
+      <img src="/static/img/logo-galaxypro.png" alt="" class="overlay-logo" />
+      <div class="spinner-grande"></div>
+      <div class="overlay-titulo">Analisando o disco…</div>
+      <div class="texto-suave">Corrigindo perspectiva, orientando e lendo o traço</div>
+    </div>
+  </div>
+}

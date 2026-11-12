@@ -106,8 +106,10 @@ CRONOTACOGRAFOS/
 ├── PLANO_DE_IMPLEMENTACAO.md
 ├── tacografos.db                # SQLite (criado automaticamente)
 ├── temp/                        # Imagens desdobradas / PDFs de teste
+├── frontend/                    # Código-fonte do front (Angular) — só para quem altera a tela
 ├── static/
-│   └── index.html               # SPA (dashboard)
+│   ├── app/                     # Build pronto do front (gerado por `npm run build`, vai no git)
+│   └── img/                     # Logo
 └── core/
     ├── processador_imagem.py    # OpenCV — LeitorDisco
     ├── analisador.py            # Regras de negócio
@@ -117,11 +119,29 @@ CRONOTACOGRAFOS/
 
 ---
 
+## Front-end (Angular)
+
+A interface é uma aplicação **Angular** em `frontend/`. O build compilado fica em `static/app/` e
+**já vai no repositório**, então para *usar* o sistema basta o Python (nada de Node.js no laboratório).
+
+Só quem for **alterar a tela** precisa do Node.js 20.19+ ou 22.12+:
+
+```bash
+cd frontend
+npm install          # primeira vez
+npm start            # desenvolvimento em http://localhost:4200 (a API precisa estar rodando na 8081)
+npm run build        # gera o build em ../static/app — faça antes do commit
+```
+
+Sem o `npm run build`, a alteração não aparece em `http://127.0.0.1:8081/`.
+
+---
+
 ## Endpoints principais
 
 | Método | Rota | Descrição |
 | --- | --- | --- |
-| `GET` | `/` | Interface SPA |
+| `GET` | `/` | Interface (Angular): `/#/` escanear, `/#/historico`, `/#/viagens/{id}` |
 | `GET` | `/api/health` | Status da API |
 | `POST` | `/upload-disco/` | Processa disco + placa e grava no banco |
 | `GET` | `/api/v1/viagens` | Lista histórico (`?placa=` opcional) |

@@ -1,0 +1,6 @@
+{
+  "/api": { "target": "http://127.0.0.1:8081", "secure": false },
+  "/upload-disco": { "target": "http://127.0.0.1:8081", "secure": false },
+  "/temp": { "target": "http://127.0.0.1:8081", "secure": false },
+  "/static/img": { "target": "http://127.0.0.1:8081", "secure": false }
+}
