@@ -8,6 +8,7 @@ a partir dos dados persistidos de uma viagem e suas infrações.
 from __future__ import annotations
 
 import io
+from html import escape
 from datetime import datetime
 from pathlib import Path
 from typing import Sequence
@@ -44,6 +45,8 @@ class GeradorLaudoPDF:
         viagem: LeituraViagem,
         infracoes: Sequence[Infracao],
         caminho_imagem_desdobrada: str | None = None,
+        nota_aneis: float | None = None,
+        avisos: Sequence[str] = (),
     ) -> bytes:
         """
         Gera o laudo em memória e devolve os bytes do PDF.
@@ -52,6 +55,8 @@ class GeradorLaudoPDF:
         - viagem: registro LeituraViagem
         - infracoes: lista de Infracao associadas
         - caminho_imagem_desdobrada: PNG opcional do warpPolar (ignorado se inválido)
+        - nota_aneis: qualidade da leitura (>= 2 confiável); None em viagens antigas
+        - avisos: alertas do leitor gravados na viagem
         """
         buffer = io.BytesIO()
         documento = SimpleDocTemplate(
@@ -68,7 +73,7 @@ class GeradorLaudoPDF:
         elementos: list[object] = []
         elementos.extend(self._bloco_cabecalho(viagem))
         elementos.append(Spacer(1, 8 * mm))
-        elementos.extend(self._bloco_resumo(viagem, len(infracoes)))
+        elementos.extend(self._bloco_resumo(viagem, len(infracoes), nota_aneis, avisos))
         elementos.append(Spacer(1, 8 * mm))
         elementos.extend(self._bloco_imagem(caminho_imagem_desdobrada))
         elementos.append(Spacer(1, 6 * mm))
@@ -180,8 +185,25 @@ class GeradorLaudoPDF:
             ),
         ]
 
-    def _bloco_resumo(self, viagem: LeituraViagem, total_infracoes: int) -> list[object]:
-        return [
+    def _bloco_resumo(
+        self,
+        viagem: LeituraViagem,
+        total_infracoes: int,
+        nota_aneis: float | None,
+        avisos: Sequence[str],
+    ) -> list[object]:
+        if nota_aneis is None:
+            qualidade = "Não registrada (viagem processada antes desta versão)"
+        elif nota_aneis >= 2.0:
+            qualidade = f"Confiável (nota {nota_aneis:.2f})"
+        else:
+            qualidade = f"BAIXA CONFIANÇA (nota {nota_aneis:.2f}) — conferir a imagem"
+        media = (
+            f"{float(viagem.velocidade_media):.1f}"
+            if viagem.velocidade_media is not None
+            else "—"
+        )
+        elementos: list[object] = [
             Paragraph("1. Resumo operacional", self._estilos["secao"]),
             self._tabela_dados(
                 [
@@ -193,14 +215,20 @@ class GeradorLaudoPDF:
                         "Velocidade máxima registrada (km/h)",
                         f"{float(viagem.velocidade_maxima):.1f}",
                     ],
+                    ["Velocidade média (km/h)", media],
                     ["Total de infrações detectadas", str(total_infracoes)],
                     [
                         "Limite de velocidade de referência (km/h)",
                         f"{self.limite_velocidade_kmh:.1f}",
                     ],
+                    ["Qualidade da leitura", qualidade],
                 ]
             ),
         ]
+        for aviso in avisos:
+            elementos.append(Spacer(1, 2 * mm))
+            elementos.append(Paragraph(f"<b>Aviso:</b> {escape(aviso)}", self._estilos["corpo"]))
+        return elementos
 
     def _bloco_imagem(self, caminho_imagem: str | None) -> list[object]:
         elementos: list[object] = [

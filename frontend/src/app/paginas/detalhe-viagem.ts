@@ -44,7 +44,9 @@ export class DetalheViagem {
           dataProcessamento: d.data_processamento,
           resumo: d.resumo_viagem,
           infracoes: d.infracoes ?? [],
-          avisos: [],
+          imagemUrl: d.imagem_desdobrada?.url,
+          avisos: d.avisos ?? [],
+          qualidade: d.qualidade_leitura ?? undefined,
         }),
       error: (e) => this.erro.set(mensagemDeErro(e, `Viagem ${id} não encontrada.`)),
     });

@@ -27,7 +27,7 @@ export interface Infracao {
 
 export interface QualidadeLeitura {
   nota_aneis: number;
-  escala_radial: number;
+  escala_radial?: number;
 }
 
 /** Resposta de POST /upload-disco/ */
@@ -60,6 +60,9 @@ export interface ViagemResumo {
 export interface ViagemDetalhe extends ViagemResumo {
   resumo_viagem: ResumoViagem;
   infracoes: Infracao[];
+  imagem_desdobrada: { url: string } | null;
+  avisos: string[];
+  qualidade_leitura: { nota_aneis: number } | null;
 }
 
 /** Formato comum que a tela de resultado sabe exibir (upload recente ou histórico). */

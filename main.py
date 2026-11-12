@@ -6,6 +6,8 @@ Serve a SPA, processa discos, persiste leituras e expõe o histórico de viagens
 
 from __future__ import annotations
 
+import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -55,8 +57,23 @@ gerador_pdf = GeradorLaudoPDF(limite_velocidade_kmh=80.0)
 AMOSTRAS_CURVA_JSON: int = 10
 LIMITE_VELOCIDADE_PADRAO_KMH: float = 80.0
 
-# Mapa em memória: viagem_id → caminho da imagem desdobrada (válido na sessão da API)
-IMAGENS_DEBUG_POR_VIAGEM: dict[int, str] = {}
+# Placa antiga (ABC-1234 / ABC1234) ou Mercosul (ABC1D23) — mesma regra do front
+REGEX_PLACA = re.compile(r"^[A-Z]{3}-?\d[A-Z0-9]\d{2}$")
+
+
+def _caminho_imagem(viagem: LeituraViagem) -> Path | None:
+    """Imagem desdobrada gravada para a viagem, se o arquivo ainda existir em temp/."""
+    if not viagem.caminho_imagem:
+        return None
+    caminho = PASTA_TEMP / Path(viagem.caminho_imagem).name
+    return caminho if caminho.is_file() else None
+
+
+def _avisos(viagem: LeituraViagem) -> list[str]:
+    try:
+        return list(json.loads(viagem.avisos_json)) if viagem.avisos_json else []
+    except (TypeError, ValueError):
+        return []
 
 
 def _json_erro(status_code: int, mensagem: str, codigo: str) -> JSONResponse:
@@ -298,12 +315,19 @@ async def detalhar_viagem(
         "resumo_viagem": {
             "distancia_estimada_km": float(viagem.distancia_total_km),
             "velocidade_maxima_kmh": float(viagem.velocidade_maxima),
-            # Média não é persistida no banco; a SPA exibe "—" quando ausente
-            "velocidade_media_kmh": None,
+            # None em viagens gravadas antes de a média ser persistida
+            "velocidade_media_kmh": viagem.velocidade_media,
             "limite_velocidade_kmh": LIMITE_VELOCIDADE_PADRAO_KMH,
             "total_infracoes": len(infracoes_json),
         },
         "infracoes": infracoes_json,
+        "imagem_desdobrada": (
+            {"url": f"/temp/{imagem.name}"} if (imagem := _caminho_imagem(viagem)) else None
+        ),
+        "avisos": _avisos(viagem),
+        "qualidade_leitura": (
+            {"nota_aneis": viagem.nota_aneis} if viagem.nota_aneis is not None else None
+        ),
     }
 
     return JSONResponse(content=payload, status_code=status.HTTP_200_OK)
@@ -337,21 +361,16 @@ async def gerar_laudo_pdf(
             detail=f"Viagem {viagem_id} não encontrada.",
         )
 
-    caminho_imagem = IMAGENS_DEBUG_POR_VIAGEM.get(viagem_id)
-    # Se o mapa em memória não tiver a imagem (API reiniciada), tenta o PNG mais recente em temp/
-    if not caminho_imagem or not Path(caminho_imagem).is_file():
-        candidatos = sorted(
-            PASTA_TEMP.glob("*.png"),
-            key=lambda p: p.stat().st_mtime,
-            reverse=True,
-        )
-        caminho_imagem = str(candidatos[0]) if candidatos else None
+    # Só a imagem gravada para ESTA viagem; sem ela o laudo diz que não há imagem
+    imagem = _caminho_imagem(viagem)
 
     try:
         pdf_bytes = gerador_pdf.gerar_pdf_viagem(
             viagem=viagem,
             infracoes=list(viagem.infracoes),
-            caminho_imagem_desdobrada=caminho_imagem,
+            caminho_imagem_desdobrada=str(imagem) if imagem else None,
+            nota_aneis=viagem.nota_aneis,
+            avisos=_avisos(viagem),
         )
     except Exception as erro:  # noqa: BLE001
         raise HTTPException(
@@ -388,6 +407,11 @@ async def upload_disco(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Informe a placa do veículo.",
+        )
+    if not REGEX_PLACA.fullmatch(placa):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Placa inválida. Use o formato antigo (ABC-1234) ou Mercosul (ABC1D23).",
         )
 
     content_type = (arquivo.content_type or "").lower()
@@ -432,6 +456,10 @@ async def upload_disco(
             data_processamento=datetime.now(),
             distancia_total_km=float(resumo["distancia_estimada_km"]),
             velocidade_maxima=float(resumo["velocidade_maxima_kmh"]),
+            velocidade_media=float(resumo["velocidade_media_kmh"]),
+            caminho_imagem=caminho_salvo.name,
+            nota_aneis=float(resultado.nota_aneis),
+            avisos_json=json.dumps(resultado.avisos, ensure_ascii=False),
         )
         db.add(viagem)
         db.flush()  # obtém viagem.id antes do commit
@@ -456,8 +484,6 @@ async def upload_disco(
         db.commit()
         db.refresh(viagem)
         viagem_id = viagem.id
-        # Associa a imagem de debug à viagem (para o laudo PDF nesta sessão)
-        IMAGENS_DEBUG_POR_VIAGEM[viagem_id] = str(caminho_salvo)
     except SQLAlchemyError:
         db.rollback()
         raise

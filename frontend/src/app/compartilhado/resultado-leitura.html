@@ -56,6 +56,8 @@
         @if (l.curva?.length) {
           <app-grafico-velocidade [curva]="l.curva!" [limite]="l.resumo.limite_velocidade_kmh" />
           <p class="texto-suave legenda">Linha tracejada vermelha: limite de {{ l.resumo.limite_velocidade_kmh }} km/h.</p>
+        } @else {
+          <p class="texto-suave">A curva minuto a minuto só aparece logo após o upload.</p>
         }
       </section>
       <section class="panel">
@@ -73,7 +75,8 @@
     </div>
   } @else {
     <app-alerta tipo="info">
-      A curva de velocidade e a imagem desdobrada ficam disponíveis apenas logo após o upload.
+      Esta viagem foi processada antes de o sistema guardar a imagem do disco; a curva e a imagem
+      não estão disponíveis.
     </app-alerta>
   }
 

@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, create_engine
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, create_engine, inspect, text
 from sqlalchemy.orm import (
     DeclarativeBase,
     Mapped,
@@ -53,6 +53,12 @@ class LeituraViagem(Base):
     )
     distancia_total_km: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     velocidade_maxima: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    velocidade_media: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    # Imagem desdobrada desta viagem (em temp/), usada no laudo e no detalhe
+    caminho_imagem: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    # Qualidade da leitura: nota de alinhamento dos anéis (>= 2 confiável) e avisos (JSON)
+    nota_aneis: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    avisos_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     # Relação 1:N — uma viagem possui várias infrações
     infracoes: Mapped[list["Infracao"]] = relationship(
@@ -100,5 +106,21 @@ def get_db() -> Generator[Session, None, None]:
 
 
 def criar_tabelas() -> None:
-    """Cria as tabelas no SQLite se ainda não existirem."""
+    """Cria as tabelas no SQLite e acrescenta colunas novas em bancos antigos."""
     Base.metadata.create_all(bind=engine)
+    _migrar_colunas_novas()
+
+
+def _migrar_colunas_novas() -> None:
+    """
+    create_all() não altera tabelas que já existem; aqui adicionamos (vazias)
+    as colunas criadas depois, para quem já tem um tacografos.db com histórico.
+    """
+    existentes = {c["name"] for c in inspect(engine).get_columns(LeituraViagem.__tablename__)}
+    with engine.begin() as conexao:
+        for coluna in LeituraViagem.__table__.columns:
+            if coluna.name not in existentes:
+                tipo = coluna.type.compile(dialect=engine.dialect)
+                conexao.execute(
+                    text(f"ALTER TABLE {LeituraViagem.__tablename__} ADD COLUMN {coluna.name} {tipo}")
+                )
