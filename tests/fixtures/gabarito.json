@@ -1,0 +1,17 @@
+{
+  "disco_reto": {
+    "distancia_km": 120.0,
+    "velocidade_maxima_kmh": 60.0,
+    "descricao": "08:00–10:00 a 60 km/h, foto de frente"
+  },
+  "disco_inclinado": {
+    "distancia_km": 179.67,
+    "velocidade_maxima_kmh": 79.8,
+    "descricao": "06:00–09:00 subindo de 40 a 80 km/h, disco inclinado"
+  },
+  "disco_lacuna": {
+    "distancia_km": 121.67,
+    "velocidade_maxima_kmh": 50.0,
+    "descricao": "14:00–16:30 a 50 km/h com 4 minutos sem traço, disco girado"
+  }
+}
