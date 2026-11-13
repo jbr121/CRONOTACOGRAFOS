@@ -47,6 +47,7 @@ class GeradorLaudoPDF:
         caminho_imagem_desdobrada: str | None = None,
         nota_aneis: float | None = None,
         avisos: Sequence[str] = (),
+        distancia_metodo: str | None = None,
     ) -> bytes:
         """
         Gera o laudo em memória e devolve os bytes do PDF.
@@ -73,7 +74,7 @@ class GeradorLaudoPDF:
         elementos: list[object] = []
         elementos.extend(self._bloco_cabecalho(viagem))
         elementos.append(Spacer(1, 8 * mm))
-        elementos.extend(self._bloco_resumo(viagem, len(infracoes), nota_aneis, avisos))
+        elementos.extend(self._bloco_resumo(viagem, len(infracoes), nota_aneis, avisos, distancia_metodo))
         elementos.append(Spacer(1, 8 * mm))
         elementos.extend(self._bloco_imagem(caminho_imagem_desdobrada))
         elementos.append(Spacer(1, 6 * mm))
@@ -191,7 +192,12 @@ class GeradorLaudoPDF:
         total_infracoes: int,
         nota_aneis: float | None,
         avisos: Sequence[str],
+        distancia_metodo: str | None,
     ) -> list[object]:
+        metodo = {
+            "zigue_zague": "Contagem do zigue-zague (5 km por traço)",
+            "velocidade": "Estimada pela curva de velocidade (menos precisa)",
+        }.get(distancia_metodo or "", "Não registrado")
         if nota_aneis is None:
             qualidade = "Não registrada (viagem processada antes desta versão)"
         elif nota_aneis >= 2.0:
@@ -211,6 +217,7 @@ class GeradorLaudoPDF:
                         "Distância total estimada (km)",
                         f"{float(viagem.distancia_total_km):.2f}",
                     ],
+                    ["Método da distância", metodo],
                     [
                         "Velocidade máxima registrada (km/h)",
                         f"{float(viagem.velocidade_maxima):.1f}",

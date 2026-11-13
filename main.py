@@ -317,6 +317,7 @@ async def detalhar_viagem(
             "velocidade_maxima_kmh": float(viagem.velocidade_maxima),
             # None em viagens gravadas antes de a média ser persistida
             "velocidade_media_kmh": viagem.velocidade_media,
+            "distancia_metodo": viagem.distancia_metodo,
             "limite_velocidade_kmh": LIMITE_VELOCIDADE_PADRAO_KMH,
             "total_infracoes": len(infracoes_json),
         },
@@ -371,6 +372,7 @@ async def gerar_laudo_pdf(
             caminho_imagem_desdobrada=str(imagem) if imagem else None,
             nota_aneis=viagem.nota_aneis,
             avisos=_avisos(viagem),
+            distancia_metodo=viagem.distancia_metodo,
         )
     except Exception as erro:  # noqa: BLE001
         raise HTTPException(
@@ -442,12 +444,26 @@ async def upload_disco(
             curva_tratada,
             limite_velocidade=LIMITE_VELOCIDADE_PADRAO_KMH,
         )
+        zigue_zague = leitor.medir_distancia_zigue_zague(resultado)
     except ErroProcessamentoDisco:
         # Deixa o exception handler global formatar 400/422 em português
         raise
 
     resumo = analise["resumo"]
     infracoes_detectadas = analise["infracoes"]
+    avisos = list(resultado.avisos)
+
+    # Distância: o zigue-zague (5 km por traço) é bem mais preciso que integrar a velocidade
+    resumo["distancia_velocidade_km"] = resumo["distancia_estimada_km"]
+    if zigue_zague.km is not None:
+        resumo["distancia_estimada_km"] = float(zigue_zague.km)
+        resumo["distancia_metodo"] = "zigue_zague"
+    else:
+        resumo["distancia_metodo"] = "velocidade"
+        avisos.append(
+            "O zigue-zague de distância não ficou legível nesta foto; a distância foi "
+            "estimada pela curva de velocidade, que é bem menos precisa."
+        )
 
     # --- Persistência: viagem + infrações ---
     try:
@@ -455,11 +471,12 @@ async def upload_disco(
             placa_veiculo=placa,
             data_processamento=datetime.now(),
             distancia_total_km=float(resumo["distancia_estimada_km"]),
+            distancia_metodo=str(resumo["distancia_metodo"]),
             velocidade_maxima=float(resumo["velocidade_maxima_kmh"]),
             velocidade_media=float(resumo["velocidade_media_kmh"]),
             caminho_imagem=caminho_salvo.name,
             nota_aneis=float(resultado.nota_aneis),
-            avisos_json=json.dumps(resultado.avisos, ensure_ascii=False),
+            avisos_json=json.dumps(avisos, ensure_ascii=False),
         )
         db.add(viagem)
         db.flush()  # obtém viagem.id antes do commit
@@ -515,7 +532,7 @@ async def upload_disco(
             "eixo_x": "24 horas (00:00 à esquerda)",
             "eixo_y": "borda do disco no topo; faixa de velocidade 0–125 km/h e barra de atividade abaixo",
         },
-        "avisos": resultado.avisos,
+        "avisos": avisos,
         "qualidade_leitura": {
             "nota_aneis": resultado.nota_aneis,
             "escala_radial": resultado.escala_radial,

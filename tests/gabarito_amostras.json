@@ -1,0 +1,8 @@
+{
+  "_sobre": "Gabarito das fotos reais em amostras/ (fora do git por conter dados pessoais). Disco A: odômetro anotado 204780 -> 204941 km. Disco B (foto 13): ~144 km.",
+  "tolerancia_distancia": 0.12,
+  "disco_a_km": 161,
+  "zigue_zague_legivel": ["3", "4", "6", "7", "9", "10", "11"],
+  "zigue_zague_ilegivel": ["1", "5", "13"],
+  "recusadas": ["2", "8", "12"]
+}

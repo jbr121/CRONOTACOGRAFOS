@@ -80,11 +80,36 @@ NOTA_ANEIS_CONFIAVEL: Final[float] = 2.0
 # Pixels verdes por linha (média na metade 12h–24h) abaixo disto = orientação incerta
 VERDE_MINIMO_ARCO: Final[float] = 0.8
 
+# Zigue-zague de distância: o estilete vai de um par de guias tracejadas ao outro;
+# cada ida completa (um "traço") equivale a 5 km.
+KM_POR_TRACO_ZIGUE_ZAGUE: Final[float] = 5.0
+# Raio (fração de R) das 4 guias impressas: par de cima e par de baixo
+GUIAS_ZIGUE_ZAGUE: Final[tuple[float, ...]] = (0.347, 0.363, 0.412, 0.429)
+FAIXA_ZIGUE_ZAGUE: Final[tuple[float, float]] = (0.30, 0.52)
+# Empenamento do papel desloca as guias até ±14 px; série de Fourier até a 4ª harmônica
+DESLOCAMENTO_MAXIMO_GUIAS_PX: Final[int] = 14
+ORDEM_AJUSTE_GUIAS: Final[int] = 4
+# Abaixo desta escuridão média das guias (após alinhar) o zigue-zague não é confiável
+FORCA_MINIMA_GUIAS: Final[float] = 5.0
+# Duração máxima de um traço (min) e vizinhança usada no contraste local da reta
+DURACAO_MAXIMA_TRACO_MIN: Final[int] = 30
+VIZINHANCA_TRACO_MIN: Final[int] = 3
+# Contraste local mínimo (escuridão normalizada) para aceitar uma reta como traço
+CONTRASTE_MINIMO_TRACO_ZZ: Final[float] = 0.15
+
 # Pasta de debug na raiz do projeto
 RAIZ_PROJETO: Final[Path] = Path(__file__).resolve().parent.parent
 PASTA_TEMP: Final[Path] = RAIZ_PROJETO / "temp"
 
 Elipse = tuple[tuple[float, float], tuple[float, float], float]
+
+
+@dataclass(frozen=True, slots=True)
+class DistanciaZigueZague:
+    """Distância lida no zigue-zague do disco (None quando não foi possível ler)."""
+    km: float | None
+    tracos: int
+    forca_guias: float
 
 
 class PontoVelocidade(TypedDict):
@@ -602,6 +627,128 @@ class LeitorDisco:
             }
             for minuto, vel in enumerate(velocidades)
         ]
+
+    # ------------------------------------------------------ distância (zigue-zague)
+
+    def medir_distancia_zigue_zague(self, resultado: ResultadoProcessamento) -> DistanciaZigueZague:
+        """
+        Conta os traços do zigue-zague (cada um = 5 km).
+
+        1. Alinha a faixa pelas 4 guias impressas (o papel empena e elas ondulam).
+        2. Pontua cada reta possível entre a guia interna de cima e a de baixo
+           pela escuridão média ao longo dela, menos a das retas paralelas vizinhas.
+        3. Programação dinâmica escolhe a sequência alternada (desce, sobe, ...)
+           de retas com contraste suficiente; o número de retas é o de traços.
+        """
+        r = self.raio_retificado
+        k = resultado.escala_radial
+        a0, a1 = int(FAIXA_ZIGUE_ZAGUE[0] * k * r), int(FAIXA_ZIGUE_ZAGUE[1] * k * r)
+        cinza = cv2.cvtColor(resultado.polar_orientado[:, a0:a1], cv2.COLOR_BGR2GRAY).astype(np.float32)
+        escuridao = np.clip(cv2.GaussianBlur(cinza, (0, 0), 6) - cinza, 0, None)
+
+        guias = np.array(GUIAS_ZIGUE_ZAGUE) * k * r - a0
+        alinhada = self._alinhar_pelas_guias(escuridao, guias)
+
+        perfil = np.median(alinhada, axis=0)
+        forca = float(np.mean([perfil[int(round(g)) - 1:int(round(g)) + 2].max() for g in guias]))
+        if forca < FORCA_MINIMA_GUIAS:
+            return DistanciaZigueZague(km=None, tracos=0, forca_guias=round(forca, 2))
+
+        cima, baixo = guias[1], guias[2]
+        miolo = alinhada[:, int(cima) + 3:int(baixo) - 2]
+        escala = float(np.percentile(miolo, 99)) + 1e-6
+        contraste = self._contraste_retas(alinhada / escala, cima, baixo)
+        tracos = self._contar_tracos_alternados(contraste - CONTRASTE_MINIMO_TRACO_ZZ)
+        return DistanciaZigueZague(
+            km=tracos * KM_POR_TRACO_ZIGUE_ZAGUE,
+            tracos=tracos,
+            forca_guias=round(forca, 2),
+        )
+
+    @staticmethod
+    def _alinhar_pelas_guias(escuridao: NDArray[np.float32], guias: NDArray[np.float64]) -> NDArray[np.float32]:
+        """Desloca cada minuto para que as 4 guias fiquem na posição nominal."""
+        minutos, largura = escuridao.shape
+        suave = cv2.blur(escuridao, (1, 25))
+        xs = np.arange(largura, dtype=np.float64)
+        pente = sum(np.exp(-0.5 * ((xs - g) / 1.5) ** 2) for g in guias)
+        pente -= pente.mean()
+
+        maxd = DESLOCAMENTO_MAXIMO_GUIAS_PX
+        correlacao = np.zeros((minutos, 2 * maxd + 1))
+        for i, d in enumerate(range(-maxd, maxd + 1)):
+            correlacao[:, i] = suave @ np.interp(xs - d, xs, pente, left=pente.min(), right=pente.min())
+        bruto = correlacao.argmax(1) - maxd
+        peso = np.clip(correlacao.max(1), 0, None)
+
+        # Série de Fourier robusta: o empenamento varia devagar com o ângulo
+        theta = 2 * np.pi * np.arange(minutos) / minutos
+        base = np.stack(
+            [np.ones(minutos)]
+            + [f(m * theta) for m in range(1, ORDEM_AJUSTE_GUIAS + 1) for f in (np.cos, np.sin)],
+            axis=1,
+        )
+        usar = peso > np.percentile(peso, 20)
+        ajuste = np.zeros(minutos)
+        for _ in range(4):
+            if usar.sum() < base.shape[1] * 3:
+                break
+            w = np.sqrt(peso[usar])
+            coef, *_ = np.linalg.lstsq(base[usar] * w[:, None], bruto[usar] * w, rcond=None)
+            ajuste = base @ coef
+            usar &= np.abs(bruto - ajuste) < 4
+
+        alinhada = np.empty_like(escuridao)
+        for t in range(minutos):
+            alinhada[t] = np.interp(xs + ajuste[t], xs, escuridao[t], left=0, right=0)
+        return alinhada
+
+    @staticmethod
+    def _contraste_retas(escuridao: NDArray[np.float32], cima: float, baixo: float) -> NDArray[np.float64]:
+        """
+        C[s, t, D]: escuridão média da reta que sai da guia s (0 = cima, 1 = baixo) no
+        minuto t e chega à outra guia em t + D, menos a das paralelas a ±3 minutos.
+        """
+        minutos = escuridao.shape[0]
+        raios = np.arange(int(np.ceil(cima + 2)), int(np.floor(baixo - 2)) + 1)
+        frac = (raios - cima) / (baixo - cima)
+        inicio = np.arange(minutos)[:, None]
+        media = np.zeros((2, minutos, DURACAO_MAXIMA_TRACO_MIN + 1))
+        for dur in range(1, DURACAO_MAXIMA_TRACO_MIN + 1):
+            for lado, f in ((0, frac), (1, 1 - frac)):
+                t = inicio + dur * f[None, :]
+                t0 = np.floor(t).astype(int)
+                a = t - t0
+                v = (1 - a) * escuridao[t0 % minutos, raios[None, :]] + a * escuridao[(t0 + 1) % minutos, raios[None, :]]
+                media[lado, :, dur] = v.mean(1)
+        viz = VIZINHANCA_TRACO_MIN
+        vizinhas = np.maximum(np.roll(media, viz, axis=1), np.roll(media, -viz, axis=1))
+        contraste = media - vizinhas
+        contraste[:, :, 0] = -np.inf
+        return contraste
+
+    @staticmethod
+    def _contar_tracos_alternados(ganho: NDArray[np.float64]) -> int:
+        """Melhor caminho com vértices alternando entre as guias; devolve o nº de traços."""
+        _, minutos, dmax1 = ganho.shape
+        melhor = np.full((minutos + dmax1, 2), -np.inf)
+        tracos = np.zeros((minutos + dmax1, 2), dtype=np.int64)
+        melhor[0, :] = 0.0
+        positivos = [[np.nonzero(ganho[lado, t] > 0)[0] for t in range(minutos)] for lado in (0, 1)]
+        for t in range(minutos):
+            for lado in (0, 1):
+                b = melhor[t, lado]
+                if b == -np.inf:
+                    continue
+                c = tracos[t, lado]
+                if b > melhor[t + 1, lado]:          # sem traço neste minuto (parado)
+                    melhor[t + 1, lado], tracos[t + 1, lado] = b, c
+                for dur in positivos[lado][t]:
+                    v = b + ganho[lado, t, dur]
+                    if v > melhor[t + dur, 1 - lado]:
+                        melhor[t + dur, 1 - lado], tracos[t + dur, 1 - lado] = v, c + 1
+        fim = minutos + int(np.argmax(melhor[minutos:].max(1)))
+        return int(tracos[fim, int(np.argmax(melhor[fim]))])
 
     # -------------------------------------------------------------------- debug
 

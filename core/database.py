@@ -52,6 +52,8 @@ class LeituraViagem(Base):
         default=datetime.now,
     )
     distancia_total_km: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    # "zigue_zague" (contagem dos traços, 5 km cada) ou "velocidade" (integração da curva)
+    distancia_metodo: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
     velocidade_maxima: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     velocidade_media: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     # Imagem desdobrada desta viagem (em temp/), usada no laudo e no detalhe

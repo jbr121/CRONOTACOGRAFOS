@@ -27,6 +27,10 @@
     <article class="metric-card">
       <span class="label">📍 Distância estimada</span>
       <span class="value">{{ l.resumo.distancia_estimada_km | number: '1.1-1' }} km</span>
+      @switch (l.resumo.distancia_metodo) {
+        @case ('zigue_zague') { <span class="metric-sub">pelo zigue-zague (5 km por traço)</span> }
+        @case ('velocidade') { <span class="metric-sub texto-aviso">pela velocidade — menos precisa</span> }
+      }
     </article>
     <article class="metric-card">
       <span class="label">⚡ Velocidade máxima</span>

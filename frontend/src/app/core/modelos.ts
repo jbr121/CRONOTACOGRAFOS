@@ -11,6 +11,8 @@ export interface ResumoViagem {
   velocidade_media_kmh: number | null;
   limite_velocidade_kmh: number;
   total_infracoes: number;
+  /** "zigue_zague" (5 km por traço) ou "velocidade" (integração, menos precisa) */
+  distancia_metodo?: 'zigue_zague' | 'velocidade' | null;
   total_excessos?: number;
   total_paradas_prolongadas?: number;
 }
